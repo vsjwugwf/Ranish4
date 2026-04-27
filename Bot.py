@@ -2635,6 +2635,20 @@ def clean_old_links():
 def polling_loop(stop_event):
     offset = None
     safe_print("[Polling] start")
+
+    # --- نادیده گرفتن همه پیام‌های قدیمی ---
+    try:
+        first_updates = get_updates(timeout=0)   # فوراً برگردد
+        if first_updates:
+            # آخرین پیام خوانده‌شده را نشانه می‌گذاریم و پیام‌های قبل از آن نادیده گرفته می‌شوند
+            offset = first_updates[-1]["update_id"] + 1
+            safe_print(f"[Poll] skipping {len(first_updates)} old updates, starting from offset {offset}")
+        else:
+            safe_print("[Poll] no old updates found.")
+    except Exception as e:
+        safe_print(f"[Poll] could not skip old updates: {e}")
+    # ----------------------------------------
+
     while not stop_event.is_set():
         try:
             updates = get_updates(offset, LONG_POLL_TIMEOUT)
@@ -2650,10 +2664,11 @@ def polling_loop(stop_event):
                 elif "callback_query" in upd:
                     handle_callback(upd["callback_query"])
             except Exception as e:
+                # 👇 این دو خط کل اطلاعات خطا را در لاگ اصلی نمایش می‌دهند
                 safe_print(f"Update handling error: {e}")
-                traceback.print_exc()
+                safe_print(traceback.format_exc())
     safe_print("[Polling] متوقف شد")
-
+    
 def main():
     os.makedirs("jobs_data", exist_ok=True)
     global admin_bans
