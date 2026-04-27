@@ -413,12 +413,11 @@ def bale_request(method, params=None, files=None):
             r = requests.post(url, data=params or {}, files=files, timeout=REQUEST_TIMEOUT)
         else:
             r = requests.post(url, json=params or {}, timeout=REQUEST_TIMEOUT)
-        # 👇 این خط‌ها رو اضافه کن
+        # لاگ‌گیری
         if method == "getUpdates":
             safe_print(f"[API] getUpdates -> HTTP {r.status_code}, ok={r.json().get('ok')}, result count={len(r.json().get('result', []))}")
         elif r.status_code != 200 or not r.json().get("ok"):
             safe_print(f"[API] {method} -> HTTP {r.status_code}, ok={r.json().get('ok')}, response={r.text[:200]}")
-        # 👆
         if r.status_code != 200:
             return None
         data = r.json()
@@ -945,9 +944,9 @@ def find_video_center(page):
     }""")
     return coords["x"], coords["y"]
 
-# ═══════════════ ادامه در پارت دوم... ═══════════════
-# (توابع اصلی پردازش Jobها، مرورگر، ضبط، دانلود، اسکن، کاوشگر،
-#  مدیریت پیام و callbackها، پنل ادمین و حلقه‌های اصلی)
+# ═══════════════ ادامه (پردازش Jobها، ضبط، مرورگر، کاوشگر، پیام‌ها، callbackها) ═══════════════
+# ادامه به دلیل محدودیت فضا در پیام بعدی ارسال می‌شود.
+
 # ═══════════════ پردازش Jobهای مرورگر ═══════════════
 def process_browser_job(job: Job):
     chat_id = job.chat_id
@@ -2235,19 +2234,30 @@ def handle_message(chat_id, text):
         send_message(chat_id, "🔓 اشتراک شما لغو شد. اکنون در طرح **پایه** هستید.",
                      reply_markup=main_menu_keyboard(session.is_admin))
         return
-        
-        if text == "/start":
-if text == "/start":
-    session.state = "idle"; session.click_counter = 0; set_session(session)
-    if session.is_admin or session.subscription != "پایه":
-        send_message(chat_id, "منوی اصلی:", reply_markup=main_menu_keyboard(session.is_admin))
-    else:
-        kb = {"inline_keyboard": [
-            [{"text": "🆓 اشتراک رایگان", "callback_data": "free_info"}],
-            [{"text": "🔑 ورود کد اشتراک", "callback_data": "enter_code"}]
-        ]}
-        send_message(chat_id, "👋 برای شروع یکی از گزینه‌ها را انتخاب کنید:", reply_markup=kb)
-    return
+
+    if text == "/start":
+        session.state = "idle"
+        session.click_counter = 0
+        set_session(session)
+        if session.is_admin or session.subscription != "پایه":
+            send_message(chat_id, "منوی اصلی:", reply_markup=main_menu_keyboard(session.is_admin))
+        else:
+            kb = {"inline_keyboard": [
+                [{"text": "🆓 اشتراک رایگان", "callback_data": "free_info"}],
+                [{"text": "🔑 ورود کد اشتراک", "callback_data": "enter_code"}]
+            ]}
+            send_message(chat_id, "👋 برای شروع یکی از گزینه‌ها را انتخاب کنید:", reply_markup=kb)
+        return
+
+    if session.state == "waiting_code":
+        sub = activate_subscription(chat_id, text)
+        if sub:
+            session.subscription = sub; session.is_admin = (chat_id == ADMIN_CHAT_ID)
+            session.state = "idle"; set_session(session)
+            send_message(chat_id, f"✅ اشتراک **{sub}** فعال شد!", reply_markup=main_menu_keyboard(session.is_admin))
+        else:
+            send_message(chat_id, "⛔ کد نامعتبر یا قبلاً مصرف شده است.")
+        return
 
     if text.startswith("/t") and session.interactive_elements:
         parts = text[2:].strip().split(maxsplit=1)
@@ -2666,7 +2676,7 @@ def polling_loop(stop_event):
                 safe_print(f"Update handling error: {e}")
                 safe_print(traceback.format_exc())
     safe_print("[Polling] متوقف شد")
-    
+
 def main():
     os.makedirs("jobs_data", exist_ok=True)
     global admin_bans
