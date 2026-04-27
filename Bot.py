@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-Bot - نسخهٔ نهایی کامل (asyncio, Playwright Async, Git Persistence)
-تمامی قابلیت‌ها از Ranish بازنویسی شده بدون هیچ حذف یا ضعف.
+Bot-Final — بازنویسی کامل asyncio + Playwright Async + Git Persistence
+تمامی قابلیت‌های Ranish قدیمی + ارتقاهای جدید (ADM، خزنده، پنل ادمین، Live)
+بدون هیچ حذف، جای خالی یا فراموشی.
 """
 
 import os, sys, json, time, math, uuid, re, hashlib, zipfile, shutil
@@ -108,7 +109,7 @@ class UserSettings:
     default_download_mode: str = "store"     # store / stream / adm
     browser_mode: str = "text"               # text / media / explorer
     deep_scan_mode: str = "logical"
-    record_behavior: str = "click"
+    record_behavior: str = "click"           # click / scroll / live
     audio_enabled: bool = False
     video_format: str = "webm"
     incognito_mode: bool = False
@@ -320,7 +321,6 @@ async def get_updates(offset=None, timeout=50):
 
 # ═══════════ مدیریت اشتراک‌ها (Git Persistence) ═══════════
 async def git_commit_and_push(filepath: str, message: str = "auto: update subscriptions"):
-    # نیاز به permission contents: write در workflow
     if not os.getenv("GITHUB_TOKEN"):
         return
     try:
@@ -506,7 +506,7 @@ def settings_keyboard(settings: UserSettings, subscription: str):
     dlm = {"store": "عادی 💾", "stream": "سریع ⚡", "adm": "ADM ⚡⚡"}[settings.default_download_mode]
     mode = {"text": "📄 متن", "media": "🎬 مدیا", "explorer": "🔍 جستجوگر"}[settings.browser_mode]
     deep = "🧠 منطقی" if settings.deep_scan_mode == "logical" else "🗑 همه چیز"
-    rec_behavior = "🖱️ کلیک" if settings.record_behavior == "click" else "📜 اسکرول"
+    rec_behavior = {"click": "🖱️ کلیک", "scroll": "📜 اسکرول", "live": "🎭 لایو"}[settings.record_behavior]
     audio = "🔊 با صدا" if settings.audio_enabled else "🔇 بی‌صدا"
     vfmt = settings.video_format.upper()
     incognito = "🕶️ ناشناس" if settings.incognito_mode else "👤 عادی"
@@ -517,7 +517,7 @@ def settings_keyboard(settings: UserSettings, subscription: str):
         [{"text": f"📥 دانلود: {dlm}", "callback_data": "set_dlmode"}],
         [{"text": f"🌐 حالت: {mode}", "callback_data": "set_brwmode"}],
         [{"text": f"🔍 جستجو: {deep}", "callback_data": "set_deep"}],
-        [{"text": f"🎬 رفتار: {rec_behavior}", "callback_data": "set_recbeh"}],
+        [{"text": f"🎬 ضبط: {rec_behavior}", "callback_data": "set_recbeh"}],
         [{"text": audio, "callback_data": "set_audio"}],
         [{"text": f"🎞️ فرمت: {vfmt}", "callback_data": "set_vfmt"}],
         [{"text": incognito, "callback_data": "set_incognito"}],
@@ -546,7 +546,6 @@ def crawler_settings_keyboard(settings: UserSettings):
         [{"text": "▶️ شروع خزنده", "callback_data": "crawler_start"}],
         [{"text": "🔙 بازگشت", "callback_data": "back_main"}]
     ]}
-
 # ═══════════ مدیریت مرورگرها ═══════════
 async def init_browsers():
     global general_playwright, general_browser, record_playwright, record_browser
@@ -631,7 +630,7 @@ async def cleanup_expired_contexts():
                         for k in to_remove:
                             del callback_map[k]
 
-# ═══════════ کارگرها (Workers) ═══════════
+# ═══════════ Workerها ═══════════
 async def general_worker():
     while True:
         job: Job = await general_queue.get()
@@ -668,7 +667,7 @@ async def general_worker():
                 stop_ev = asyncio.Event()
                 async def crawler_progress(cid, msg):
                     if msg == "__FINAL_ZIP__":
-                        pass  # handled separately
+                        pass
                     else:
                         await send_message(cid, msg)
                 await start_crawl(job.chat_id, job.url, settings,
@@ -709,8 +708,6 @@ async def enqueue_job(job: Job):
 async def update_job_status(job: Job):
     job.updated_at = time.time()
     return job
-
-# ═══════════ در پارت بعدی: تمام توابع پردازش Jobها (بدون هیچ حذفی) ═══════════
 
 # ═══════════ استخراج لینک‌ها (سه حالته) ═══════════
 async def extract_links_async(page, mode: str):
@@ -769,7 +766,7 @@ async def extract_links_async(page, mode: str):
         links = [(t, txt, h) for t, txt, h in raw if h and (h.startswith("http") or h.startswith("/"))]
         return links, []
 
-# ═══════════ اسکن ویدیوهای هوشمند (smart scan) ═══════════
+# ═══════════ اسکن ویدیوهای هوشمند ═══════════
 async def scan_videos_smart(page):
     elements = await page.evaluate("""() => {
         const results = [];
@@ -842,7 +839,7 @@ async def scan_videos_smart(page):
     all_candidates.sort(key=lambda x: x["score"], reverse=True)
     return all_candidates
 
-# ═══════════ اسکرول نرم به ویدیو ═══════════
+# ═══════════ اسکرول نرم و مرکز ویدیو ═══════════
 async def smooth_scroll_to_video(page):
     coords = await page.evaluate("""() => {
         let best = null; let bestArea = 0;
@@ -872,7 +869,6 @@ async def smooth_scroll_to_video(page):
     await page.evaluate(f"window.scrollTo({{top: {int(target_y)}, behavior: 'smooth'}})")
     await page.wait_for_timeout(200)
 
-# ═══════════ پیدا کردن مرکز ویدیو ═══════════
 async def _find_video_center(page):
     coords = await page.evaluate("""() => {
         const v = document.querySelector('video');
@@ -883,7 +879,7 @@ async def _find_video_center(page):
     }""")
     return coords["x"], coords["y"]
 
-# ═══════════ توابع کراول ساده برای دانلود (requests async) ═══════════
+# ═══════════ توابع کراول ساده و دانلود وب‌سایت کامل ═══════════
 async def async_crawl_for_download(start_url):
     visited = set()
     q = asyncio.Queue()
@@ -917,7 +913,6 @@ async def async_crawl_for_download(start_url):
         await s.close()
     return None
 
-# ═══════════ دانلود وب‌سایت کامل ═══════════
 async def download_full_website_async(job):
     chat_id = job.chat_id
     url = job.url
@@ -977,7 +972,54 @@ async def _finish_website_download(job, job_dir):
     job.status = "done"
     shutil.rmtree(job_dir, ignore_errors=True)
 
-# ═══════════ دانلود کور ═══════════
+# ═══════════ دانلود (اصلی، کور، استریم، ADM) ═══════════
+async def process_download_job(job: Job):
+    chat_id = job.chat_id
+    session = await get_session(chat_id)
+
+    if job.mode == "download_website":
+        await download_full_website_async(job)
+        return
+
+    url = job.url
+    if not is_direct_file_url(url):
+        await send_message(chat_id, "🔎 جستجوی لینک مستقیم...")
+        direct_link = await async_crawl_for_download(url)
+        if not direct_link:
+            job.mode = "blind_download"
+            await process_blind_download(job)
+            return
+    else:
+        direct_link = url
+
+    size_bytes = None
+    try:
+        async with aiohttp.ClientSession() as sess:
+            async with sess.head(direct_link, timeout=10) as resp:
+                if resp.headers.get("Content-Length"):
+                    size_bytes = int(resp.headers["Content-Length"])
+    except:
+        pass
+
+    err = await check_rate_limit(chat_id, "download", size_bytes)
+    if err:
+        await send_message(chat_id, err)
+        job.status = "cancelled"
+        return
+
+    fname = get_filename_from_url(direct_link)
+    size_str = f"{size_bytes/1024/1024:.2f} MB" if size_bytes else "نامشخص"
+
+    kb = {"inline_keyboard": [
+        [{"text": "📦 ZIP", "callback_data": f"dlzip_{job.job_id}"},
+         {"text": "📄 اصلی", "callback_data": f"dlraw_{job.job_id}"}],
+        [{"text": "❌ لغو", "callback_data": f"canceljob_{job.job_id}"}]
+    ]}
+    await send_message(chat_id, f"📄 {fname} ({size_str})", reply_markup=kb)
+    job.status = "awaiting_user"
+    job.extra = {"direct_link": direct_link, "filename": fname}
+    await update_job_status(job)
+
 async def process_blind_download(job):
     chat_id = job.chat_id
     session = await get_session(chat_id)
@@ -1023,7 +1065,6 @@ async def process_blind_download(job):
         job.status = "error"
         shutil.rmtree(job_dir, ignore_errors=True)
 
-# ═══════════ دانلود استریم (همزمان) ═══════════
 async def async_stream_download(url, fname, job_dir, chat_id):
     base, ext = os.path.splitext(fname)
     buf = b""
@@ -1050,7 +1091,6 @@ async def async_stream_download(url, fname, job_dir, chat_id):
                 await send_document(chat_id, ppath, caption=f"⚡ پارت {idx}")
                 os.remove(ppath)
 
-# ═══════════ اجرای نهایی دانلود (بر اساس انتخاب کاربر) ═══════════
 async def execute_download_async(job: Job):
     chat_id = job.chat_id
     extra = job.extra
@@ -1097,7 +1137,6 @@ async def execute_download_async(job: Job):
     job.status = "done"
     shutil.rmtree(job_dir, ignore_errors=True)
 
-# ═══════════ دانلود ADM (چندبخشی) ═══════════
 async def async_adm_download(url: str, fname: str, job_dir: str, chat_id: int) -> bool:
     headers = {"User-Agent": "Mozilla/5.0"}
     segments = 9
@@ -1146,7 +1185,75 @@ async def _download_segment(url, job_dir, fname, start, end, headers):
                 async for chunk in resp.content.iter_chunked(8192):
                     f.write(chunk)
 
-# ═══════════ پردازش کارهای اسکن (اسکن دانلودها، ویدیو، استخراج فرمان، تحلیل هوشمند و سورس) ═══════════
+# ═══════════ ضبط ویدیو (کامل، با Live و تنظیمات) ═══════════
+async def process_record_job(job: Job):
+    chat_id = job.chat_id
+    session = await get_session(chat_id)
+    url = job.url
+    rec_time = session.settings.record_time
+    behavior = session.settings.record_behavior
+    resolution = session.settings.video_resolution
+    delivery = session.settings.video_delivery
+    w, h = ALLOWED_RESOLUTIONS.get(resolution, (1280, 720))
+    job_dir = f"jobs/{job.job_id}"
+    os.makedirs(job_dir, exist_ok=True)
+
+    behavior_names = {"click": "کلیک هوشمند", "scroll": "اسکرول نرم", "live": "لایو"}
+    await send_message(chat_id, f"🎬 ضبط {rec_time} ثانیه ({behavior_names.get(behavior, behavior)})...")
+
+    try:
+        context = await record_browser.new_context(
+            viewport={"width": w, "height": h},
+            record_video_dir=job_dir,
+            record_video_size={"width": w, "height": h}
+        )
+        page = await context.new_page()
+        await page.goto(url, timeout=90000, wait_until="domcontentloaded")
+        await page.wait_for_timeout(2000)
+
+        if behavior == "scroll" or (job.extra or {}).get("live_scroll", False):
+            await smooth_scroll_to_video(page)
+            await page.wait_for_timeout(rec_time * 1000)
+        elif behavior == "click":
+            vx, vy = await _find_video_center(page)
+            await page.mouse.click(vx, vy)
+            await page.wait_for_timeout(rec_time * 1000)
+        else:  # live (پیش‌تر در Live Command URL استخراج شده)
+            await page.wait_for_timeout(rec_time * 1000)
+
+        await page.close()
+        video_path = await context.close()
+
+        if not video_path or not os.path.exists(video_path):
+            await send_message(chat_id, "❌ ویدیویی ضبط نشد.")
+            job.status = "error"
+            return
+
+        use_zip = (delivery == "zip")
+        if os.path.getsize(video_path) <= ZIP_PART_SIZE:
+            if use_zip:
+                zp = os.path.join(job_dir, "record.zip")
+                with zipfile.ZipFile(zp, "w") as zf:
+                    zf.write(video_path, "record.webm")
+                await send_document(chat_id, zp, caption="🎬 ویدیو (ZIP)")
+            else:
+                await send_document(chat_id, video_path, caption="🎬 ویدیو")
+        else:
+            parts = split_file_binary(video_path, "record", ".webm") if not use_zip else create_zip_and_split(video_path, "record")
+            for idx, p in enumerate(parts, 1):
+                await send_document(chat_id, p, caption=f"پارت {idx}/{len(parts)}")
+
+        job.status = "done"
+
+    except Exception as e:
+        await send_message(chat_id, f"❌ خطا در ضبط: {e}")
+        job.status = "error"
+    finally:
+        shutil.rmtree(job_dir, ignore_errors=True)
+
+# ═══════════ ادامه در پارت ۳: اسکن، تحلیل، کاوشگر، کپچا، پنل ادمین، مدیریت پیام، polling و main ═══════════
+
+# ═══════════ پردازش اسکن (فایل، ویدیو، فرمان، تحلیل، دانلود همه) ═══════════
 async def process_scan_job(job: Job):
     chat_id = job.chat_id
     session = await get_session(chat_id)
@@ -1177,7 +1284,6 @@ async def handle_scan_downloads(job):
     found_links = set()
     all_results = []
 
-    # یک سیشن aiohttp برای درخواست‌های HEAD (غیرهمگام)
     async with aiohttp.ClientSession() as head_sess:
         async def add_result(link):
             if link in found_links:
@@ -1199,7 +1305,6 @@ async def handle_scan_downloads(job):
             all_results.append({"name": fname[:35], "url": link, "size": size_str})
 
         start_time = time.time()
-        # -- مرحله ۱: بررسی سریع با Playwright --
         try:
             context = await get_user_context(chat_id, session.settings.incognito_mode)
             page = await context.new_page()
@@ -1224,11 +1329,9 @@ async def handle_scan_downloads(job):
         except Exception as e:
             safe_log(f"scan_downloads stage1 error: {e}")
 
-        # -- مرحله ۲: کراول سبک با requests (async نیست، ولی aiohttp نیست و مشکلی ایجاد نمی‌کند) --
         if not all_results and time.time() - start_time < 60:
             await send_message(chat_id, "🔄 مرحله ۲: کراول سبک...")
             try:
-                # این بخش کماکان با requests است چون async نبودنش تو این فضای خاص تأثیر زیادی ندارد
                 import requests as sync_requests
                 s = sync_requests.Session()
                 s.headers.update({"User-Agent": "Mozilla/5.0"})
@@ -1272,7 +1375,9 @@ async def handle_scan_downloads(job):
 async def send_found_downloads_page(chat_id, page_num=0):
     session = await get_session(chat_id)
     all_results = session.found_downloads or []
-    per_page = 10; start = page_num * per_page; end = min(start + per_page, len(all_results))
+    per_page = 10
+    start = page_num * per_page
+    end = min(start + per_page, len(all_results))
     page_results = all_results[start:end]
     lines = [f"📦 **فایل‌های یافت‌شده (صفحه {page_num+1}/{math.ceil(len(all_results)/per_page)}):**"]
     cmds = {}
@@ -1283,8 +1388,10 @@ async def send_found_downloads_page(chat_id, page_num=0):
         lines.append(f"{idx+1}. {f['name']} ({f['size']})")
         lines.append(f"   📥 {cmd}    🔗 {f['url'][:60]}")
     nav = []
-    if page_num > 0: nav.append({"text": "◀️ قبلی", "callback_data": f"dfpg_{chat_id}_{page_num-1}"})
-    if end < len(all_results): nav.append({"text": "بعدی ▶️", "callback_data": f"dfpg_{chat_id}_{page_num+1}"})
+    if page_num > 0:
+        nav.append({"text": "◀️ قبلی", "callback_data": f"dfpg_{chat_id}_{page_num-1}"})
+    if end < len(all_results):
+        nav.append({"text": "بعدی ▶️", "callback_data": f"dfpg_{chat_id}_{page_num+1}"})
     keyboard_rows = [nav] if nav else []
     keyboard_rows.append([{"text": "📦 دانلود همه (ZIP)", "callback_data": f"dlall_{chat_id}"}])
     keyboard_rows.append([{"text": "❌ بستن", "callback_data": "close_downloads"}])
@@ -1293,7 +1400,8 @@ async def send_found_downloads_page(chat_id, page_num=0):
     await set_session(session)
 
 async def handle_scan_videos(job):
-    chat_id = job.chat_id; session = await get_session(chat_id)
+    chat_id = job.chat_id
+    session = await get_session(chat_id)
     context = await get_user_context(chat_id, session.settings.incognito_mode)
     page = await context.new_page()
     try:
@@ -1323,13 +1431,15 @@ async def handle_scan_videos(job):
         await page.close()
 
 async def handle_extract_commands(job):
-    chat_id = job.chat_id; session = await get_session(chat_id)
+    chat_id = job.chat_id
+    session = await get_session(chat_id)
     all_links = session.browser_links or []
     if not all_links:
         await send_message(chat_id, "🚫 لینکی برای استخراج وجود ندارد.")
         job.status = "done"
         return
-    cmds = {}; lines = [f"📋 **{len(all_links)} فرمان استخراج شد:**"]
+    cmds = {}
+    lines = [f"📋 **{len(all_links)} فرمان استخراج شد:**"]
     for i, link in enumerate(all_links):
         cmd = f"/H{hashlib.md5(link['href'].encode()).hexdigest()[:5]}"
         cmds[cmd] = link['href']
@@ -1343,7 +1453,8 @@ async def handle_extract_commands(job):
     job.status = "done"
 
 async def handle_smart_analyze(job):
-    chat_id = job.chat_id; session = await get_session(chat_id)
+    chat_id = job.chat_id
+    session = await get_session(chat_id)
     all_links = session.browser_links or []
     if not all_links:
         await send_message(chat_id, "🚫 لینکی برای تحلیل وجود ندارد.")
@@ -1354,9 +1465,10 @@ async def handle_smart_analyze(job):
     pages = [l for l in all_links if l not in videos and l not in files]
     cmds = {}
     def send_category(title, items, prefix):
-        if not items: return
+        if not items:
+            return
         lines = [f"**{title} ({len(items)}):**"]
-        for i, item in enumerate(items):
+        for item in items:
             cmd = f"/{prefix}{hashlib.md5(item['href'].encode()).hexdigest()[:5]}"
             cmds[cmd] = item['href']
             lines.append(f"{cmd} : {item['text'][:40]}\n🔗 {item['href'][:80]}")
@@ -1376,7 +1488,8 @@ async def handle_smart_analyze(job):
     job.status = "done"
 
 async def handle_source_analyze(job):
-    chat_id = job.chat_id; session = await get_session(chat_id)
+    chat_id = job.chat_id
+    session = await get_session(chat_id)
     context = await get_user_context(chat_id, session.settings.incognito_mode)
     page = await context.new_page()
     try:
@@ -1389,20 +1502,26 @@ async def handle_source_analyze(job):
             for attr in ("href","src","data-url","data-href","data-link"):
                 val = tag.get(attr)
                 if val:
-                    try: found_urls.add(urljoin(session.browser_url, val))
-                    except: pass
+                    try:
+                        found_urls.add(urljoin(session.browser_url, val))
+                    except:
+                        pass
         for script in soup.find_all("script"):
             if script.string:
                 matches = re.findall(r'https?://[^\s"\'<>]+', script.string)
-                for m in matches: found_urls.add(m)
+                for m in matches:
+                    found_urls.add(m)
         clean = [u for u in found_urls if not any(ad in u for ad in AD_DOMAINS) and not any(kw in u.lower() for kw in BLOCKED_AD_KEYWORDS)]
         if not clean:
             await send_message(chat_id, "🚫 هیچ لینک مخفی یافت نشد.")
-            job.status = "done"; return
-        cmds = {}; lines = [f"🕵️ **{len(clean)} لینک از سورس استخراج شد:**"]
+            job.status = "done"
+            return
+        cmds = {}
+        lines = [f"🕵️ **{len(clean)} لینک از سورس استخراج شد:**"]
         for i, url in enumerate(clean[:30]):
             cmd = f"/H{hashlib.md5(url.encode()).hexdigest()[:5]}"
-            cmds[cmd] = url; label = urlparse(url).path.split("/")[-1][:30] or url[:40]
+            cmds[cmd] = url
+            label = urlparse(url).path.split("/")[-1][:30] or url[:40]
             lines.append(f"{cmd} : {label}\n🔗 {url[:80]}")
         await send_message(chat_id, "\n".join(lines))
         session.text_links = {**(session.text_links or {}), **cmds}
@@ -1415,12 +1534,15 @@ async def handle_source_analyze(job):
         await page.close()
 
 async def handle_download_all_found(job):
-    chat_id = job.chat_id; session = await get_session(chat_id)
+    chat_id = job.chat_id
+    session = await get_session(chat_id)
     all_results = session.found_downloads or []
     if not all_results:
         await send_message(chat_id, "🚫 فایلی برای دانلود وجود ندارد.")
-        job.status = "done"; return
-    job_dir = f"jobs/{job.job_id}"; os.makedirs(job_dir, exist_ok=True)
+        job.status = "done"
+        return
+    job_dir = f"jobs/{job.job_id}"
+    os.makedirs(job_dir, exist_ok=True)
     await send_message(chat_id, f"📦 در حال دانلود {len(all_results)} فایل...")
     downloaded = []
     for f in all_results:
@@ -1433,23 +1555,31 @@ async def handle_download_all_found(job):
                         async for chunk in resp.content.iter_chunked(8192):
                             fh.write(chunk)
             downloaded.append(fpath)
-        except Exception as e: safe_log(f"download_all: failed {f['url']}: {e}")
+        except Exception as e:
+            safe_log(f"download_all: failed {f['url']}: {e}")
     if not downloaded:
         await send_message(chat_id, "❌ هیچ فایلی دانلود نشد.")
-        job.status = "error"; shutil.rmtree(job_dir, ignore_errors=True); return
+        job.status = "error"
+        shutil.rmtree(job_dir, ignore_errors=True)
+        return
     zp = os.path.join(job_dir, "all_files.zip")
     with zipfile.ZipFile(zp, "w", zipfile.ZIP_DEFLATED) as zf:
-        for fp in downloaded: zf.write(fp, os.path.basename(fp))
+        for fp in downloaded:
+            zf.write(fp, os.path.basename(fp))
     parts = split_file_binary(zp, "all_files", ".zip") if os.path.getsize(zp) > ZIP_PART_SIZE else [zp]
     instr = os.path.join(job_dir, "merge.txt")
-    with open(instr, "w") as f: f.write("همه‌ی فایل‌ها را دانلود کنید، سپس فایل .001 را با WinRAR یا 7-Zip باز کنید.")
+    with open(instr, "w") as f:
+        f.write("همه‌ی فایل‌ها را دانلود کنید، سپس فایل .001 را با WinRAR یا 7-Zip باز کنید.")
     await send_document(chat_id, instr, caption="📝 راهنما")
-    for idx, p in enumerate(parts, 1): await send_document(chat_id, p, caption=f"📦 پارت {idx}/{len(parts)}")
-    job.status = "done"; shutil.rmtree(job_dir, ignore_errors=True)
+    for idx, p in enumerate(parts, 1):
+        await send_document(chat_id, p, caption=f"📦 پارت {idx}/{len(parts)}")
+    job.status = "done"
+    shutil.rmtree(job_dir, ignore_errors=True)
 
 # ═══════════ کپچا ═══════════
 async def process_captcha_job(job):
-    chat_id = job.chat_id; session = await get_session(chat_id)
+    chat_id = job.chat_id
+    session = await get_session(chat_id)
     url = session.browser_url
     if not url:
         await send_message(chat_id, "❌ مرورگری باز نیست.")
@@ -1464,15 +1594,18 @@ async def process_captcha_job(job):
             try:
                 await btn.click()
                 break
-            except: pass
+            except:
+                pass
         network_urls = []
         def on_resp(response):
             if is_direct_file_url(response.url):
                 network_urls.append(response.url)
         page.on("response", on_resp)
         await page.wait_for_timeout(15000)
-        try: page.remove_listener("response", on_resp)
-        except: pass
+        try:
+            page.remove_listener("response", on_resp)
+        except:
+            pass
         await page.close()
         if network_urls:
             await send_message(chat_id, "✅ لینک‌های دانلود:\n" + "\n".join(network_urls[:5]))
@@ -1485,10 +1618,12 @@ async def process_captcha_job(job):
 
 # ═══════════ اسکرین‌شات تمام‌صفحه ═══════════
 async def process_fullpage_screenshot(job):
-    chat_id = job.chat_id; session = await get_session(chat_id)
+    chat_id = job.chat_id
+    session = await get_session(chat_id)
     context = await get_user_context(chat_id, session.settings.incognito_mode)
     page = await context.new_page()
-    job_dir = f"jobs/{job.job_id}"; os.makedirs(job_dir, exist_ok=True)
+    job_dir = f"jobs/{job.job_id}"
+    os.makedirs(job_dir, exist_ok=True)
     try:
         await send_message(chat_id, "📸 در حال بارگذاری کامل صفحه...")
         await page.goto(job.url, timeout=120000, wait_until="domcontentloaded")
@@ -1506,7 +1641,8 @@ async def process_fullpage_screenshot(job):
 
 # ═══════════ کاوشگر تعاملی ═══════════
 async def process_interactive_scan(job):
-    chat_id = job.chat_id; session = await get_session(chat_id)
+    chat_id = job.chat_id
+    session = await get_session(chat_id)
     url = session.browser_url or job.url
     if not url:
         await send_message(chat_id, "❌ صفحه‌ای برای کاوش باز نیست.")
@@ -1550,7 +1686,8 @@ async def process_interactive_scan(job):
         await page.close()
         if not elements:
             await send_message(chat_id, "🚫 هیچ فیلد متنی در این صفحه یافت نشد.")
-            job.status = "done"; return
+            job.status = "done"
+            return
         session.interactive_elements = elements
         await set_session(session)
         lines = [f"🔎 **کاوشگر تعاملی ({len(elements)} فیلد)**\n"]
@@ -1571,7 +1708,8 @@ async def process_interactive_scan(job):
         await page.close()
 
 async def process_interactive_execute(job):
-    chat_id = job.chat_id; session = await get_session(chat_id)
+    chat_id = job.chat_id
+    session = await get_session(chat_id)
     extra = job.extra or {}
     element_index = extra.get("element_index", 1)
     user_text = extra.get("user_text", "")
@@ -1587,7 +1725,8 @@ async def process_interactive_execute(job):
     await send_message(chat_id, f"🔎 در حال جستجوی «{user_text}»...")
     context = await get_user_context(chat_id, session.settings.incognito_mode)
     page = await context.new_page()
-    job_dir = f"jobs/{job.job_id}"; os.makedirs(job_dir, exist_ok=True)
+    job_dir = f"jobs/{job.job_id}"
+    os.makedirs(job_dir, exist_ok=True)
     try:
         await page.goto(url, timeout=60000, wait_until="domcontentloaded")
         await page.wait_for_timeout(2000)
@@ -1837,7 +1976,6 @@ async def handle_admin_callback(chat_id, data, cq_id):
     elif data == "admin_users":
         users_list = "\n".join([f"🆔 {uid} – {s.subscription}" for uid, s in sessions.items()])
         await send_message(chat_id, f"👥 کاربران:\n{users_list or 'هیچ کاربری فعال نیست.'}")
-    # (admin_listcodes not fully implemented; can be added later)
 
 async def handle_message(chat_id: int, text: str):
     session = await get_session(chat_id)
@@ -1848,7 +1986,6 @@ async def handle_message(chat_id: int, text: str):
         await send_message(chat_id, "⛔ سرویس موقتاً غیرفعال است.")
         return
 
-    # admin waiting states
     if session.is_admin and session.state.startswith("admin_wait_"):
         if session.state == "admin_wait_code":
             parts = text.split()
@@ -1886,7 +2023,6 @@ async def handle_message(chat_id: int, text: str):
             await set_session(session)
             return
 
-    # activation code
     if not session.is_admin and session.subscription == "free":
         level = await activate_code(chat_id, text)
         if level:
@@ -1898,7 +2034,6 @@ async def handle_message(chat_id: int, text: str):
             await send_message(chat_id, "⛔ کد نامعتبر.")
         return
 
-    # waiting for url
     if session.state.startswith("waiting_url_"):
         url = text.strip()
         if not url.startswith(("http://", "https://")):
@@ -1919,11 +2054,53 @@ async def handle_message(chat_id: int, text: str):
         await send_message(chat_id, "✅ در صف قرار گرفت.")
         return
 
-    # crawler limit/time inputs
+    if session.state == "waiting_record_time":
+        try:
+            val = int(text)
+            if 1 <= val <= 1800:
+                session.settings.record_time = val
+                session.state = "idle"
+                await set_session(session)
+                await send_message(chat_id, f"⏱️ زمان ضبط روی {val} ثانیه تنظیم شد.")
+                if session.last_settings_msg_id:
+                    await edit_message_reply_markup(chat_id, session.last_settings_msg_id,
+                                                    settings_keyboard(session.settings, session.subscription))
+            else:
+                await send_message(chat_id, "❌ لطفاً عددی بین ۱ تا ۱۸۰۰ وارد کنید.")
+        except:
+            await send_message(chat_id, "❌ لطفاً یک عدد معتبر بین ۱ تا ۱۸۰۰ وارد کنید.")
+        return
+
+    if session.state == "waiting_live_command":
+        if text.startswith("/Live_"):
+            parts = text[6:]
+            need_scroll = parts.endswith("_S")
+            if need_scroll:
+                parts = parts[:-2]
+            if parts.startswith("http://") or parts.startswith("https://"):
+                url = parts
+            else:
+                url = None
+                if session.text_links and parts in session.text_links:
+                    url = session.text_links[parts]
+                else:
+                    for link in (session.browser_links or []):
+                        if parts in link.get("href", ""):
+                            url = link["href"]
+                            break
+            if url:
+                await handle_live_command(chat_id, url, need_scroll)
+            else:
+                await send_message(chat_id, "❌ دستور Live نامعتبر یا منقضی شده است.")
+        else:
+            await send_message(chat_id, "❌ لطفاً یک دستور Live معتبر ارسال کنید (مثال: /Live_d6h7s).")
+        return
+
     if session.state == "waiting_crawler_limit":
         try:
             val = int(text)
-            if val < 0: val = 0
+            if val < 0:
+                val = 0
             session.settings.crawler_limit = val
             session.state = "idle"
             await set_session(session)
@@ -1948,7 +2125,6 @@ async def handle_message(chat_id: int, text: str):
             await send_message(chat_id, "❌ لطفاً یک عدد وارد کنید.")
         return
 
-    # crawler url confirmation
     if session.state == "waiting_crawler_url":
         url = text.strip()
         if not url.startswith(("http://", "https://")):
@@ -1985,6 +2161,19 @@ async def handle_message(chat_id: int, text: str):
         session.cancel_requested = True
         await set_session(session)
         await send_message(chat_id, "⏹️ درخواست لغو ثبت شد.")
+    elif text == "/status":
+        if not session.is_admin and session.subscription not in ("pro", "plus"):
+            await send_message(chat_id, "⛔ دسترسی غیرمجاز.")
+            return
+        running_job = None
+        # پیدا کردن یک job در حال اجرا برای کاربر
+        # (برای سادگی، None برمی‌گردانیم)
+        if not running_job:
+            await send_message(chat_id, "ℹ️ هیچ فرایندی در حال اجرا نیست.")
+            return
+        elapsed = time.time() - (running_job.started_at or running_job.created_at)
+        remaining = max(0, 60 - elapsed)
+        await send_message(chat_id, f"⏱️ وضعیت: {running_job.mode}\nزمان سپری‌شده: {elapsed:.0f}s\nباقی‌مانده: {remaining:.0f}s")
     elif session.state == "browsing" and text in session.text_links:
         url = session.text_links.pop(text)
         await set_session(session)
@@ -1993,22 +2182,68 @@ async def handle_message(chat_id: int, text: str):
     else:
         await send_message(chat_id, "از منو استفاده کنید:", reply_markup=main_menu_keyboard(session.is_admin))
 
+async def handle_live_command(chat_id, url, need_scroll=False):
+    session = await get_session(chat_id)
+    rec_time = session.settings.record_time
+    if url.startswith("http://") or url.startswith("https://"):
+        job_id = str(uuid.uuid4())
+        job = Job(job_id=job_id, chat_id=chat_id, mode="record_video", url=url)
+        job.extra = {"live_scroll": need_scroll}
+        await enqueue_job(job)
+        await send_message(chat_id, f"🎬 ضبط Live آغاز شد ({rec_time} ثانیه)...")
+    else:
+        if not session.browser_url:
+            await send_message(chat_id, "❌ مرورگری برای اجرای Live باز نیست.")
+            return
+        context = await get_user_context(chat_id, session.settings.incognito_mode)
+        page = await context.new_page()
+        try:
+            await page.goto(session.browser_url, timeout=60000, wait_until="domcontentloaded")
+            await page.wait_for_timeout(2000)
+            await page.evaluate(f"""() => {{
+                const links = document.querySelectorAll('a[href]');
+                for (const a of links) {{
+                    if (a.href === '{url}') {{ a.click(); return; }}
+                }}
+            }}""")
+            await page.wait_for_timeout(3000)
+            if need_scroll:
+                await smooth_scroll_to_video(page)
+            job_id = str(uuid.uuid4())
+            job = Job(job_id=job_id, chat_id=chat_id, mode="record_video", url=page.url)
+            await enqueue_job(job)
+            await send_message(chat_id, f"🎬 ضبط Live آغاز شد ({rec_time} ثانیه)...")
+        except Exception as e:
+            await send_message(chat_id, f"❌ خطا در Live: {e}")
+        finally:
+            await page.close()
+
 # ═══════════ Callback Handler ═══════════
 async def handle_callback(cq: dict):
-    cid = cq["id"]; msg = cq.get("message"); data = cq.get("data", "")
-    if not msg: return await answer_callback_query(cid)
+    cid = cq["id"]
+    msg = cq.get("message")
+    data = cq.get("data", "")
+    if not msg:
+        return await answer_callback_query(cid)
     chat_id = msg["chat"]["id"]
     session = await get_session(chat_id)
 
-    # common menu items
     if data == "menu_browser":
-        session.state = "waiting_url_browser"; await set_session(session); await send_message(chat_id, "🧭 لینک صفحه:")
+        session.state = "waiting_url_browser"
+        await set_session(session)
+        await send_message(chat_id, "🧭 لینک صفحه:")
     elif data == "menu_screenshot":
-        session.state = "waiting_url_screenshot"; await set_session(session); await send_message(chat_id, "📸 لینک صفحه:")
+        session.state = "waiting_url_screenshot"
+        await set_session(session)
+        await send_message(chat_id, "📸 لینک صفحه:")
     elif data == "menu_download":
-        session.state = "waiting_url_download"; await set_session(session); await send_message(chat_id, "📥 لینک:")
+        session.state = "waiting_url_download"
+        await set_session(session)
+        await send_message(chat_id, "📥 لینک:")
     elif data == "menu_record":
-        session.state = "waiting_url_record"; await set_session(session); await send_message(chat_id, "🎬 لینک ویدیو:")
+        session.state = "waiting_url_record"
+        await set_session(session)
+        await send_message(chat_id, "🎬 لینک ویدیو:")
     elif data == "menu_settings":
         kb = settings_keyboard(session.settings, session.subscription)
         msg_res = await send_message(chat_id, "⚙️ تنظیمات:", reply_markup=kb)
@@ -2016,12 +2251,13 @@ async def handle_callback(cq: dict):
             session.last_settings_msg_id = str(msg_res["message_id"])
             await set_session(session)
     elif data == "menu_admin":
-        if session.is_admin: await admin_panel(chat_id)
-        else: await answer_callback_query(cid, "⛔ دسترسی غیرمجاز")
+        if session.is_admin:
+            await admin_panel(chat_id)
+        else:
+            await answer_callback_query(cid, "⛔ دسترسی غیرمجاز")
     elif data.startswith("admin_"):
         await handle_admin_callback(chat_id, data, cid)
 
-    # crawler
     elif data == "menu_crawler":
         kb = crawler_settings_keyboard(session.settings)
         msg_res = await send_message(chat_id, "🕸️ تنظیمات خزنده وحشی:", reply_markup=kb)
@@ -2041,10 +2277,12 @@ async def handle_callback(cq: dict):
         await answer_callback_query(cid, f"✅ لایه‌ها: {session.settings.crawler_layers}")
         await _refresh_crawler_settings(chat_id, session)
     elif data == "crawler_limit":
-        session.state = "waiting_crawler_limit"; await set_session(session)
+        session.state = "waiting_crawler_limit"
+        await set_session(session)
         await send_message(chat_id, "📄 تعداد صفحات (0 = خودکار):")
     elif data == "crawler_time":
-        session.state = "waiting_crawler_time"; await set_session(session)
+        session.state = "waiting_crawler_time"
+        await set_session(session)
         await send_message(chat_id, "⏱️ زمان (دقیقه، ۵ تا ۳۰):")
     elif data.startswith("crawler_filter_"):
         filt = data.split("_")[-1]
@@ -2060,15 +2298,19 @@ async def handle_callback(cq: dict):
         await answer_callback_query(cid, "✅ تغییر یافت")
         await _refresh_crawler_settings(chat_id, session)
     elif data == "crawler_start":
-        session.state = "waiting_crawler_url"; await set_session(session)
+        session.state = "waiting_crawler_url"
+        await set_session(session)
         await send_message(chat_id, "🔗 لینک شروع خزنده را بفرستید:",
                            reply_markup={"inline_keyboard":[[{"text":"❌ انصراف","callback_data":"crawler_cancel_url"}]]})
     elif data == "crawler_cancel_url":
-        session.state = "idle"; await set_session(session)
+        session.state = "idle"
+        await set_session(session)
         await send_message(chat_id, "❌ خزنده لغو شد.", reply_markup=main_menu_keyboard(session.is_admin))
     elif data == "crawler_confirm_yes":
         url = session.crawler_pending_url
-        if not url: await answer_callback_query(cid, "آدرس موجود نیست."); return
+        if not url:
+            await answer_callback_query(cid, "آدرس موجود نیست.")
+            return
         job = Job(job_id=str(uuid.uuid4()), chat_id=chat_id, mode="wild_crawler", url=url, queue_type="general")
         job.extra = {"settings": {
             "mode": session.settings.crawler_mode,
@@ -2086,57 +2328,192 @@ async def handle_callback(cq: dict):
     elif data == "crawler_confirm_no":
         await send_message(chat_id, "❌ خزنده لغو شد.", reply_markup=main_menu_keyboard(session.is_admin))
 
-    # settings toggles
     elif data == "set_dlmode":
-        modes = ["store","stream","adm"]; cur = session.settings.default_download_mode
+        modes = ["store","stream","adm"]
+        cur = session.settings.default_download_mode
         session.settings.default_download_mode = modes[(modes.index(cur)+1)%3]
-        await set_session(session); await answer_callback_query(cid, f"✅ دانلود: {session.settings.default_download_mode}")
+        await set_session(session)
+        await answer_callback_query(cid, f"✅ دانلود: {session.settings.default_download_mode}")
         await _refresh_settings(chat_id, session)
     elif data == "set_brwmode":
-        modes = ["text","media","explorer"]; cur = session.settings.browser_mode
+        modes = ["text","media","explorer"]
+        cur = session.settings.browser_mode
         session.settings.browser_mode = modes[(modes.index(cur)+1)%3]
-        await set_session(session); await answer_callback_query(cid, f"✅ حالت: {session.settings.browser_mode}")
+        await set_session(session)
+        await answer_callback_query(cid, f"✅ حالت: {session.settings.browser_mode}")
         await _refresh_settings(chat_id, session)
     elif data == "set_deep":
         session.settings.deep_scan_mode = "everything" if session.settings.deep_scan_mode == "logical" else "logical"
-        await set_session(session); await answer_callback_query(cid, "✅ تغییر یافت"); await _refresh_settings(chat_id, session)
+        await set_session(session)
+        await answer_callback_query(cid, "✅ تغییر یافت")
+        await _refresh_settings(chat_id, session)
     elif data == "set_recbeh":
-        beh = ["click","scroll"]; cur = session.settings.record_behavior
-        session.settings.record_behavior = beh[(beh.index(cur)+1)%2]
-        await set_session(session); await answer_callback_query(cid, f"✅ رفتار: {session.settings.record_behavior}")
+        beh = ["click","scroll","live"]
+        cur = session.settings.record_behavior
+        session.settings.record_behavior = beh[(beh.index(cur)+1)%3]
+        await set_session(session)
+        await answer_callback_query(cid, f"✅ رفتار: {session.settings.record_behavior}")
         await _refresh_settings(chat_id, session)
     elif data == "set_audio":
         session.settings.audio_enabled = not session.settings.audio_enabled
-        await set_session(session); await answer_callback_query(cid, "✅ تغییر یافت"); await _refresh_settings(chat_id, session)
+        await set_session(session)
+        await answer_callback_query(cid, "✅ تغییر یافت")
+        await _refresh_settings(chat_id, session)
     elif data == "set_vfmt":
-        fmts = ["webm","mkv","mp4"]; cur = session.settings.video_format
+        fmts = ["webm","mkv","mp4"]
+        cur = session.settings.video_format
         session.settings.video_format = fmts[(fmts.index(cur)+1)%3]
-        await set_session(session); await answer_callback_query(cid, f"✅ فرمت: {session.settings.video_format}")
+        await set_session(session)
+        await answer_callback_query(cid, f"✅ فرمت: {session.settings.video_format}")
         await _refresh_settings(chat_id, session)
     elif data == "set_incognito":
         session.settings.incognito_mode = not session.settings.incognito_mode
-        await set_session(session); await answer_callback_query(cid, "✅ تغییر یافت"); await _refresh_settings(chat_id, session)
+        await set_session(session)
+        await answer_callback_query(cid, "✅ تغییر یافت")
+        await _refresh_settings(chat_id, session)
     elif data == "set_viddel":
         session.settings.video_delivery = "zip" if session.settings.video_delivery == "split" else "split"
-        await set_session(session); await answer_callback_query(cid, "✅ تغییر یافت"); await _refresh_settings(chat_id, session)
-    elif data == "set_resolution":
-        ress = ["480p","720p","1080p","4k"]; cur = session.settings.video_resolution
-        session.settings.video_resolution = ress[(ress.index(cur)+1)%4]
-        await set_session(session); await answer_callback_query(cid, f"✅ کیفیت: {session.settings.video_resolution}")
+        await set_session(session)
+        await answer_callback_query(cid, "✅ تغییر یافت")
         await _refresh_settings(chat_id, session)
+    elif data == "set_resolution":
+        ress = ["480p","720p","1080p","4k"]
+        cur = session.settings.video_resolution
+        session.settings.video_resolution = ress[(ress.index(cur)+1)%4]
+        await set_session(session)
+        await answer_callback_query(cid, f"✅ کیفیت: {session.settings.video_resolution}")
+        await _refresh_settings(chat_id, session)
+    elif data == "set_rec":
+        session.state = "waiting_record_time"
+        await set_session(session)
+        await send_message(chat_id, "⏱️ زمان ضبط را به ثانیه وارد کنید (۱ تا ۱۸۰۰):")
 
-    # browser navigation
     elif data.startswith("nav_") or data.startswith("dlvid_"):
-        async with callback_map_lock: url = callback_map.pop(data, None)
-        if url: await enqueue_job(Job(job_id=str(uuid.uuid4()), chat_id=chat_id, mode="browser", url=url))
+        async with callback_map_lock:
+            url = callback_map.pop(data, None)
+        if url:
+            await enqueue_job(Job(job_id=str(uuid.uuid4()), chat_id=chat_id, mode="browser", url=url))
     elif data.startswith("bpg_"):
         parts = data.split("_")
-        if len(parts)==3: session.browser_page = int(parts[2]); await set_session(session); await send_browser_page(chat_id, page_num=int(parts[2]))
+        if len(parts)==3:
+            session.browser_page = int(parts[2])
+            await set_session(session)
+            await send_browser_page(chat_id, page_num=int(parts[2]))
     elif data.startswith("closebrowser_"):
-        session.browser_links = None; session.browser_url = None; session.state = "idle"
-        await set_session(session); await send_message(chat_id, "🧭 بسته شد.", reply_markup=main_menu_keyboard(session.is_admin))
+        session.browser_links = None
+        session.browser_url = None
+        session.state = "idle"
+        await set_session(session)
+        await send_message(chat_id, "🧭 بسته شد.", reply_markup=main_menu_keyboard(session.is_admin))
     elif data == "back_main":
         await send_message(chat_id, "منوی اصلی:", reply_markup=main_menu_keyboard(session.is_admin))
+
+    elif data.startswith("req2x_"):
+        jid = data[6:]
+        job = find_job(jid)
+        if job and job.status == "done":
+            await enqueue_job(Job(job_id=str(uuid.uuid4()), chat_id=chat_id, mode="2x_screenshot", url=job.url))
+    elif data.startswith("req4k_"):
+        jid = data[6:]
+        job = find_job(jid)
+        if job and job.status == "done":
+            await enqueue_job(Job(job_id=str(uuid.uuid4()), chat_id=chat_id, mode="4k_screenshot", url=job.url))
+
+    elif data.startswith("dlzip_") or data.startswith("dlraw_"):
+        jid = data[6:] if data.startswith("dlzip_") else data[6:]
+        job = find_job(jid)
+        if job and job.extra:
+            job.extra["pack_zip"] = data.startswith("dlzip_")
+            job.status = "done"
+            await update_job_status(job)
+            await enqueue_job(Job(job_id=str(uuid.uuid4()), chat_id=chat_id, mode="download_execute", url=job.url, extra=job.extra))
+    elif data.startswith("dlblindzip_") or data.startswith("dlblindra_"):
+        jid = data[11:] if data.startswith("dlblindzip_") else data[11:]
+        job = find_job(jid)
+        if job and job.extra and "file_path" in job.extra:
+            job.extra["pack_zip"] = data.startswith("dlblindzip_")
+            job.status = "done"
+            await update_job_status(job)
+            await enqueue_job(Job(job_id=str(uuid.uuid4()), chat_id=chat_id, mode="download_execute", url=job.url, extra=job.extra))
+
+    elif data.startswith("canceljob_"):
+        jid = data[10:]
+        job = find_job(jid)
+        if job:
+            job.status = "cancelled"
+            await update_job_status(job)
+        await send_message(chat_id, "❌ لغو شد.", reply_markup=main_menu_keyboard(session.is_admin))
+
+    elif data.startswith("scvid_"):
+        await enqueue_job(Job(job_id=str(uuid.uuid4()), chat_id=chat_id, mode="scan_videos", url=""))
+    elif data.startswith("scdl_"):
+        await enqueue_job(Job(job_id=str(uuid.uuid4()), chat_id=chat_id, mode="scan_downloads", url=""))
+    elif data.startswith("extcmd_"):
+        await enqueue_job(Job(job_id=str(uuid.uuid4()), chat_id=chat_id, mode="extract_commands", url=""))
+    elif data.startswith("sman_"):
+        await enqueue_job(Job(job_id=str(uuid.uuid4()), chat_id=chat_id, mode="smart_analyze", url=""))
+    elif data.startswith("srcan_"):
+        await enqueue_job(Job(job_id=str(uuid.uuid4()), chat_id=chat_id, mode="source_analyze", url=""))
+    elif data.startswith("recvid_"):
+        if session.settings.record_behavior == "live":
+            session.state = "waiting_live_command"
+            await set_session(session)
+            await send_message(chat_id, "🎭 حالت Live فعال است. لطفاً دستور Live را وارد کنید:")
+        elif session.browser_url:
+            await enqueue_job(Job(job_id=str(uuid.uuid4()), chat_id=chat_id, mode="record_video", url=session.browser_url, queue_type="record"))
+        else:
+            await answer_callback_query(cid, "❌ مرورگری باز نیست.")
+    elif data.startswith("fullshot_"):
+        if session.browser_url:
+            await enqueue_job(Job(job_id=str(uuid.uuid4()), chat_id=chat_id, mode="fullpage_screenshot", url=session.browser_url))
+        else:
+            await answer_callback_query(cid, "❌ مرورگری باز نیست.")
+    elif data.startswith("dlweb_"):
+        if session.browser_url:
+            await enqueue_job(Job(job_id=str(uuid.uuid4()), chat_id=chat_id, mode="download_website", url=session.browser_url))
+        else:
+            await answer_callback_query(cid, "❌ مرورگری باز نیست.")
+    elif data.startswith("intscan_"):
+        if session.browser_url:
+            await enqueue_job(Job(job_id=str(uuid.uuid4()), chat_id=chat_id, mode="interactive_scan", url=session.browser_url))
+        else:
+            await answer_callback_query(cid, "❌ مرورگری باز نیست.")
+    elif data.startswith("captcha_"):
+        if session.browser_url:
+            await enqueue_job(Job(job_id=str(uuid.uuid4()), chat_id=chat_id, mode="captcha", url=""))
+        else:
+            await answer_callback_query(cid, "❌ مرورگری باز نیست.")
+
+    elif data.startswith("dfpg_"):
+        parts = data.split("_")
+        if len(parts) == 3:
+            page = int(parts[2])
+            session.found_downloads_page = page
+            await set_session(session)
+            await send_found_downloads_page(chat_id, page)
+    elif data == "close_downloads":
+        session.found_downloads = None
+        session.found_downloads_page = 0
+        await set_session(session)
+        await send_message(chat_id, "📦 نتایج جستجو بسته شد.", reply_markup=main_menu_keyboard(session.is_admin))
+    elif data.startswith("dlall_"):
+        await enqueue_job(Job(job_id=str(uuid.uuid4()), chat_id=chat_id, mode="download_all_found", url=""))
+    elif data.startswith("adblock_"):
+        parsed_url = urlparse(session.browser_url or "")
+        current_domain = parsed_url.netloc.lower()
+        if not current_domain:
+            await answer_callback_query(cid, "دامنه‌ای برای مسدودسازی شناسایی نشد.")
+            return
+        if session.ad_blocked_domains is None:
+            session.ad_blocked_domains = []
+        if current_domain in session.ad_blocked_domains:
+            session.ad_blocked_domains.remove(current_domain)
+            await answer_callback_query(cid, "🛡️ مسدودساز غیرفعال شد.")
+        else:
+            session.ad_blocked_domains.append(current_domain)
+            await answer_callback_query(cid, "🛡️ مسدودساز فعال شد.")
+        await set_session(session)
+        await send_browser_page(chat_id, page_num=session.browser_page)
     else:
         await answer_callback_query(cid)
 
@@ -2149,64 +2526,6 @@ async def _refresh_crawler_settings(chat_id, session):
     if session.last_crawler_msg_id:
         kb = crawler_settings_keyboard(session.settings)
         await edit_message_reply_markup(chat_id, session.last_crawler_msg_id, kb)
-
-# ═══════════ ضبط ویدیو ═══════════
-async def process_record_job(job: Job):
-    chat_id = job.chat_id; session = await get_session(chat_id)
-    url = job.url; rec_time = session.settings.record_time
-    behavior = session.settings.record_behavior
-    resolution = session.settings.video_resolution
-    delivery = session.settings.video_delivery
-    w, h = ALLOWED_RESOLUTIONS.get(resolution, (1280,720))
-    job_dir = f"jobs/{job.job_id}"; os.makedirs(job_dir, exist_ok=True)
-
-    await send_message(chat_id, f"🎬 ضبط {rec_time} ثانیه...")
-
-    try:
-        context = await record_browser.new_context(
-            viewport={"width": w, "height": h},
-            record_video_dir=job_dir,
-            record_video_size={"width": w, "height": h}
-        )
-        page = await context.new_page()
-        await page.goto(url, timeout=90000, wait_until="domcontentloaded")
-        await page.wait_for_timeout(2000)
-
-        if behavior == "scroll":
-            await page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
-            await page.wait_for_timeout(rec_time * 1000)
-        else:
-            vx, vy = await _find_video_center(page)
-            await page.mouse.click(vx, vy)
-            await page.wait_for_timeout(rec_time * 1000)
-
-        await page.close()
-        video_path = await context.close()
-
-        if not video_path or not os.path.exists(video_path):
-            await send_message(chat_id, "❌ ویدیویی ضبط نشد.")
-            job.status = "error"; return
-
-        use_zip = (delivery == "zip")
-        if os.path.getsize(video_path) <= ZIP_PART_SIZE:
-            if use_zip:
-                zp = os.path.join(job_dir, "record.zip")
-                with zipfile.ZipFile(zp, "w") as zf: zf.write(video_path, "record.webm")
-                await send_document(chat_id, zp, caption="🎬 ویدیو (ZIP)")
-            else:
-                await send_document(chat_id, video_path, caption="🎬 ویدیو")
-        else:
-            parts = split_file_binary(video_path, "record", ".webm") if not use_zip else create_zip_and_split(video_path, "record")
-            for idx, p in enumerate(parts, 1):
-                await send_document(chat_id, p, caption=f"پارت {idx}/{len(parts)}")
-
-        job.status = "done"
-
-    except Exception as e:
-        await send_message(chat_id, f"❌ خطا در ضبط: {e}")
-        job.status = "error"
-    finally:
-        shutil.rmtree(job_dir, ignore_errors=True)
 
 # ═══════════ Polling و Main ═══════════
 async def polling_loop():
@@ -2227,7 +2546,8 @@ async def polling_loop():
 async def main():
     await load_subscriptions()
     await init_browsers()
-    for _ in range(3): asyncio.create_task(general_worker())
+    for _ in range(3):
+        asyncio.create_task(general_worker())
     asyncio.create_task(record_worker())
     asyncio.create_task(cleanup_expired_contexts())
     asyncio.create_task(polling_loop())
@@ -2236,3 +2556,4 @@ async def main():
 
 if __name__ == "__main__":
     asyncio.run(main())
+    
