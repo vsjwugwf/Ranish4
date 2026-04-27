@@ -2237,6 +2237,7 @@ def handle_message(chat_id, text):
         return
         
         if text == "/start":
+if text == "/start":
     session.state = "idle"; session.click_counter = 0; set_session(session)
     if session.is_admin or session.subscription != "پایه":
         send_message(chat_id, "منوی اصلی:", reply_markup=main_menu_keyboard(session.is_admin))
@@ -2247,16 +2248,6 @@ def handle_message(chat_id, text):
         ]}
         send_message(chat_id, "👋 برای شروع یکی از گزینه‌ها را انتخاب کنید:", reply_markup=kb)
     return
-
-    if session.state == "waiting_code":
-        sub = activate_subscription(chat_id, text)
-        if sub:
-            session.subscription = sub; session.is_admin = (chat_id == ADMIN_CHAT_ID)
-            session.state = "idle"; set_session(session)
-            send_message(chat_id, f"✅ اشتراک **{sub}** فعال شد!", reply_markup=main_menu_keyboard(session.is_admin))
-        else:
-            send_message(chat_id, "⛔ کد نامعتبر یا قبلاً مصرف شده است.")
-        return
 
     if text.startswith("/t") and session.interactive_elements:
         parts = text[2:].strip().split(maxsplit=1)
