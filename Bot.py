@@ -2235,11 +2235,18 @@ def handle_message(chat_id, text):
         send_message(chat_id, "🔓 اشتراک شما لغو شد. اکنون در طرح **پایه** هستید.",
                      reply_markup=main_menu_keyboard(session.is_admin))
         return
-
-    if text == "/start":
-        session.state = "idle"; session.click_counter = 0; set_session(session)
+        
+        if text == "/start":
+    session.state = "idle"; session.click_counter = 0; set_session(session)
+    if session.is_admin or session.subscription != "پایه":
         send_message(chat_id, "منوی اصلی:", reply_markup=main_menu_keyboard(session.is_admin))
-        return
+    else:
+        kb = {"inline_keyboard": [
+            [{"text": "🆓 اشتراک رایگان", "callback_data": "free_info"}],
+            [{"text": "🔑 ورود کد اشتراک", "callback_data": "enter_code"}]
+        ]}
+        send_message(chat_id, "👋 برای شروع یکی از گزینه‌ها را انتخاب کنید:", reply_markup=kb)
+    return
 
     if session.state == "waiting_code":
         sub = activate_subscription(chat_id, text)
