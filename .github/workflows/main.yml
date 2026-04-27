@@ -1,14 +1,17 @@
-name: Bot Final - Persistent Runner
+name: Bot-K2 Final Stable
 
 on:
   schedule:
     - cron: "0 */6 * * *"        # اجرای خودکار هر ۶ ساعت
-  workflow_dispatch:            # اجرای دستی از طریق دکمه گیت‌هاب
+  workflow_dispatch:            # اجرای دستی
+
+permissions:                   # ★ این دو خط فوق‌العاده مهم است
+  contents: write
 
 jobs:
   run-bot:
     runs-on: ubuntu-latest
-    timeout-minutes: 360         # حداکثر زمان کلی ۶ ساعت
+    timeout-minutes: 360
 
     steps:
       - name: دریافت کد از مخزن
@@ -36,6 +39,6 @@ jobs:
       - name: اجرای ربات (۵:۵۵ ساعت)
         env:
           BALE_BOT_TOKEN: ${{ secrets.BALE_BOT_TOKEN }}
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}   # برای push کردن فایل‌های اشتراک توسط کد
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           timeout 21300 python Bot.py
