@@ -2,16 +2,16 @@ name: Bot27 - Production Runner
 
 on:
   schedule:
-    - cron: "0 */6 * * *"        # هر ۶ ساعت یکبار
-  workflow_dispatch:            # امکان اجرای دستی
+    - cron: "0 */6 * * *"
+  workflow_dispatch:
 
 jobs:
   run-bot:
     runs-on: ubuntu-latest
-    timeout-minutes: 360         # حداکثر ۶ ساعت
+    timeout-minutes: 360
     env:
       FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
-      DISPLAY: :99               # نمایشگر مجازی برای فایرفاکس
+      DISPLAY: :99
 
     steps:
       - name: دریافت کد از مخزن
@@ -22,7 +22,7 @@ jobs:
         with:
           python-version: '3.10'
 
-      - name: نصب پیش‌نیازهای سیستمی (Xvfb, FFmpeg, PulseAudio)
+      - name: نصب پیش‌نیازهای سیستمی
         run: |
           sudo apt-get update -qq
           sudo apt-get install -y -qq xvfb ffmpeg pulseaudio pulseaudio-utils
