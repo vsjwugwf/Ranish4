@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-Bot27 – In-Memory Edition (بدون فایل، با کدهای اشتراک هاردکد)
+Bot27 – In-Memory Edition (پایدار نهایی)
 """
 
 import os, sys, json, time, math, queue, shutil, zipfile, uuid, re, hashlib
-import subprocess, threading, traceback, random
+import subprocess, threading, traceback
 from dataclasses import dataclass, asdict, field
 from typing import Dict, Any, Optional, List, Tuple
 from urllib.parse import urlparse, urljoin, unquote
@@ -23,11 +23,11 @@ if not BALE_BOT_TOKEN:
 BALE_API_URL = "https://tapi.bale.ai/bot" + BALE_BOT_TOKEN
 REQUEST_TIMEOUT = 30
 LONG_POLL_TIMEOUT = 50
-ZIP_PART_SIZE = int(19 * 1024 * 1024)       # 19MB
+ZIP_PART_SIZE = int(19 * 1024 * 1024)
 
 ADMIN_CHAT_ID = 46829437
 
-WORKER_TIMEOUT = 300                     # ۵ دقیقه
+WORKER_TIMEOUT = 300
 MAX_RECORD_MINUTES_ADMIN = 60
 MAX_RECORD_MINUTES_USER = 15
 MAX_4K_RECORD_MINUTES = 10
@@ -79,32 +79,30 @@ RES_REQUIREMENTS = {
     "4k": ["الماسی"],
 }
 
-# دامنه‌ها و کلمات کلیدی تبلیغاتی
 AD_DOMAINS = {"doubleclick.net", "googleadservices.com", "googlesyndication.com", "adservice.google.com"}
 BLOCKED_AD_KEYWORDS = {"ad", "banner", "popup", "sponsor", "track", "analytics"}
 
-# ═══════════════ کدهای اشتراک هاردکد (۲۰ کد برای هر طرح) ═══════════════
+# ═══════════════ کدهای اشتراک هاردکد ═══════════════
 HARDCODED_CODES = {
     "نقره‌ای": [
-        "SIL-001", "SIL-002", "SIL-003", "SIL-004", "SIL-005",
-        "SIL-006", "SIL-007", "SIL-008", "SIL-009", "SIL-010",
-        "SIL-011", "SIL-012", "SIL-013", "SIL-014", "SIL-015",
-        "SIL-016", "SIL-017", "SIL-018", "SIL-019", "SIL-020"
+        "SIL-001","SIL-002","SIL-003","SIL-004","SIL-005",
+        "SIL-006","SIL-007","SIL-008","SIL-009","SIL-010",
+        "SIL-011","SIL-012","SIL-013","SIL-014","SIL-015",
+        "SIL-016","SIL-017","SIL-018","SIL-019","SIL-020"
     ],
     "طلایی": [
-        "GLD-001", "GLD-002", "GLD-003", "GLD-004", "GLD-005",
-        "GLD-006", "GLD-007", "GLD-008", "GLD-009", "GLD-010",
-        "GLD-011", "GLD-012", "GLD-013", "GLD-014", "GLD-015",
-        "GLD-016", "GLD-017", "GLD-018", "GLD-019", "GLD-020"
+        "GLD-001","GLD-002","GLD-003","GLD-004","GLD-005",
+        "GLD-006","GLD-007","GLD-008","GLD-009","GLD-010",
+        "GLD-011","GLD-012","GLD-013","GLD-014","GLD-015",
+        "GLD-016","GLD-017","GLD-018","GLD-019","GLD-020"
     ],
     "الماسی": [
-        "DIA-001", "DIA-002", "DIA-003", "DIA-004", "DIA-005",
-        "DIA-006", "DIA-007", "DIA-008", "DIA-009", "DIA-010",
-        "DIA-011", "DIA-012", "DIA-013", "DIA-014", "DIA-015",
-        "DIA-016", "DIA-017", "DIA-018", "DIA-019", "DIA-020"
+        "DIA-001","DIA-002","DIA-003","DIA-004","DIA-005",
+        "DIA-006","DIA-007","DIA-008","DIA-009","DIA-010",
+        "DIA-011","DIA-012","DIA-013","DIA-014","DIA-015",
+        "DIA-016","DIA-017","DIA-018","DIA-019","DIA-020"
     ]
 }
-# کدهای قفل‌شده: {code: chat_id}
 code_bindings: Dict[str, int] = {}
 
 # ═══════════════ قفل‌ها و ساختارهای In-Memory ═══════════════
@@ -116,7 +114,6 @@ user_flood_data: Dict[int, List[float]] = {}
 user_ban_until: Dict[int, float] = {}
 admin_bans: Dict[int, float] = {}
 
-# صف‌های In-Memory با قفل
 queue_locks = {
     "browser": threading.Lock(),
     "download": threading.Lock(),
@@ -128,13 +125,9 @@ inmemory_queues = {
     "record": []
 }
 
-# نشست‌ها در RAM
-inmemory_sessions: Dict[int, Dict[str, Any]] = {}
-inmemory_subscriptions: Dict[int, str] = {}   # chat_id -> plan
+inmemory_sessions: Dict[str, Dict[str, Any]] = {}
+inmemory_subscriptions: Dict[int, str] = {}
 service_disabled = False
-
-def debug_log(msg: str):
-    pass  # فایل debug.log حذف شد
 
 def safe_print(*args, **kwargs):
     with print_lock:
@@ -143,19 +136,19 @@ def safe_print(*args, **kwargs):
 # ═══════════════ مدل‌های داده ═══════════════
 @dataclass
 class UserSettings:
-    record_time: int = 20          # دقیقه
+    record_time: int = 20
     default_download_mode: str = "store"
     browser_mode: str = "text"
     deep_scan_mode: str = "logical"
-    record_behavior: str = "click"   # فقط "click" یا "scroll"
+    record_behavior: str = "click"
     audio_enabled: bool = False
     video_format: str = "webm"
     incognito_mode: bool = False
     video_delivery: str = "split"
     video_resolution: str = "720p"
-    crawler_mode: str = "normal"     # normal, medium, deep
-    crawler_layers: int = 2          # 1-4
-    crawler_limit: int = 0           # 0=auto, >0=manual
+    crawler_mode: str = "normal"
+    crawler_layers: int = 2
+    crawler_limit: int = 0
 
 @dataclass
 class SessionState:
@@ -179,7 +172,8 @@ class SessionState:
     interactive_elements: Optional[List[Dict[str, Any]]] = None
     stop_requested: bool = False
     last_browser_time: float = 0.0
-    crawler_active: bool = False          # کاربر در حین خزنده قفل شود
+    crawler_active: bool = False
+    usage: Dict[str, List[float]] = field(default_factory=dict)
 
 @dataclass
 class Job:
@@ -196,7 +190,7 @@ class Job:
     queue_type: str = "browser"
     stop_flag: bool = False
 
-# ═══════════════ مدیریت Ban در RAM ═══════════════
+# ═══════════════ مدیریت Ban ═══════════════
 def ban_user(chat_id: int, minutes: Optional[int] = None):
     now = time.time()
     with flood_lock:
@@ -225,7 +219,7 @@ def is_user_banned(chat_id: int) -> bool:
             return True
         return False
 
-# ═══════════════ اشتراک‌ها (In-Memory + کدهای هاردکد) ═══════════════
+# ═══════════════ اشتراک‌ها ═══════════════
 def get_user_subscription(chat_id: int) -> str:
     return inmemory_subscriptions.get(chat_id, "پایه")
 
@@ -236,7 +230,6 @@ def activate_subscription(chat_id: int, code: str) -> Optional[str]:
     code = code.strip()
     for plan, codes in HARDCODED_CODES.items():
         if code in codes:
-            # اگر کد قبلاً به یک chat_id دیگر بایند شده باشد
             if code in code_bindings and code_bindings[code] != chat_id:
                 return None
             code_bindings[code] = chat_id
@@ -271,22 +264,16 @@ def check_rate_limit(chat_id: int, mode: str, file_size_bytes: Optional[int] = N
     if max_count >= 999:
         return None
     now = time.time()
-    key = str(chat_id)
-    usage = inmemory_sessions.get(chat_id, {}).get("usage", {}).get(mode_key, [])
+    sess = get_session(chat_id)
+    usage = sess.usage.get(mode_key, [])
     cutoff = now - window_seconds
     recent = [t for t in usage if t > cutoff]
     if len(recent) >= max_count:
         return f"⏰ محدودیت ساعتی: حداکثر {max_count} بار در ساعت (سطح «{level}»)."
-    update_usage(chat_id, mode_key)
+    usage.append(time.time())
+    sess.usage[mode_key] = usage
+    set_session(sess)
     return None
-
-def update_usage(chat_id: int, mode: str):
-    sess = get_session(chat_id)
-    if mode not in getattr(sess, "usage", {}):
-        if not hasattr(sess, "usage"):
-            sess.usage = {}
-        sess.usage.setdefault(mode, []).append(time.time())
-        set_session(sess)
 
 # ═══════════════ ضد اسپم ═══════════════
 FLOOD_WINDOW = 5
@@ -309,7 +296,7 @@ def check_flood(chat_id: int) -> bool:
             return False
         return True
 
-# ═══════════════ نشست‌ها (In-Memory) ═══════════════
+# ═══════════════ نشست‌ها ═══════════════
 def get_session(chat_id):
     key = str(chat_id)
     if key in inmemory_sessions:
@@ -318,7 +305,7 @@ def get_session(chat_id):
         for k, v in d.items():
             if k == "settings":
                 s.settings = UserSettings(**v)
-            elif k in ("ad_blocked_domains", "found_downloads", "last_settings_msg_id", "interactive_elements"):
+            elif k in ("ad_blocked_domains", "found_downloads", "last_settings_msg_id", "interactive_elements", "usage"):
                 setattr(s, k, v)
             else:
                 setattr(s, k, v)
@@ -341,6 +328,7 @@ def set_session(session):
     d["found_downloads"] = session.found_downloads
     d["last_settings_msg_id"] = session.last_settings_msg_id
     d["interactive_elements"] = session.interactive_elements
+    d["usage"] = session.usage
     inmemory_sessions[str(session.chat_id)] = d
 
 # ═══════════════ API بله ═══════════════
@@ -737,9 +725,148 @@ def worker_loop(worker_id, stop_event, worker_type):
             traceback.print_exc()
             time.sleep(5)
 
-# ═══════════════ ادامه فایل (توابع اصلی پردازش، پیام‌ها و callbackها) در پارت بعد ═══════════════
-# (بخش‌های اسکرین‌شات، مرورگر، دانلود، ضبط، کپچا، مدیریت پیام و حلقه اصلی)
-# ادامه دارد...
+# ═══════════════ اسکن ویدیو هوشمند ═══════════════
+def scan_videos_smart(page):
+    elements = page.evaluate("""() => {
+        const results = [];
+        const centerX = window.innerWidth / 2;
+        const centerY = window.innerHeight / 2;
+        document.querySelectorAll('video').forEach(v => {
+            const rect = v.getBoundingClientRect();
+            if (rect.width < 200 || rect.height < 150) return;
+            let src = v.src || (v.querySelector('source') ? v.querySelector('source').src : '');
+            if (!src) return;
+            const area = rect.width * rect.height;
+            const dist = Math.sqrt(Math.pow(rect.x + rect.width/2 - centerX, 2) + Math.pow(rect.y + rect.height/2 - centerY, 2));
+            results.push({text: 'video element', href: src, score: area - dist*2, w: rect.width, h: rect.height});
+        });
+        document.querySelectorAll('iframe').forEach(f => {
+            const rect = f.getBoundingClientRect();
+            if (rect.width < 300 || rect.height < 200) return;
+            let src = f.src || '';
+            if (!src.startsWith('http')) return;
+            const area = rect.width * rect.height;
+            const dist = Math.sqrt(Math.pow(rect.x + rect.width/2 - centerX, 2) + Math.pow(rect.y + rect.height/2 - centerY, 2));
+            results.push({text: 'iframe', href: src, score: area - dist*2, w: rect.width, h: rect.height});
+        });
+        return results;
+    }""")
+
+    network_urls = []
+    def capture(response):
+        ct = response.headers.get("content-type", "")
+        url = response.url.lower()
+        if "mpegurl" in ct or "dash+xml" in ct or url.endswith((".m3u8", ".mpd")) or \
+           ("video" in ct and (url.endswith(".mp4") or url.endswith(".webm") or url.endswith(".mkv"))):
+            network_urls.append(response.url)
+    page.on("response", capture)
+    page.wait_for_timeout(3000)
+    page.remove_listener("response", capture)
+
+    json_urls = page.evaluate("""() => {
+        const results = [];
+        const scripts = document.querySelectorAll('script');
+        for (const s of scripts) {
+            const text = s.textContent || '';
+            const matches = text.match(/(https?:\\/\\/[^"']+\\.(?:m3u8|mp4|mkv|webm|mpd)[^"']*)/gi);
+            if (matches) results.push(...matches);
+        }
+        return results;
+    }""")
+
+    all_candidates = []
+    for el in elements:
+        href = el["href"]
+        if not href.startswith("http"):
+            continue
+        parsed = urlparse(href)
+        if any(ad in parsed.netloc for ad in AD_DOMAINS):
+            continue
+        if any(kw in href.lower() for kw in BLOCKED_AD_KEYWORDS):
+            continue
+        all_candidates.append({
+            "text": (el["text"] + f" ({parsed.netloc})")[:35],
+            "href": href,
+            "score": el["score"]
+        })
+    for url in network_urls:
+        if url in [c["href"] for c in all_candidates]:
+            continue
+        parsed = urlparse(url)
+        if any(ad in parsed.netloc for ad in AD_DOMAINS):
+            continue
+        all_candidates.append({
+            "text": f"Network stream ({parsed.netloc})"[:35],
+            "href": url,
+            "score": 100000
+        })
+    for url in json_urls:
+        if url in [c["href"] for c in all_candidates]:
+            continue
+        parsed = urlparse(url)
+        if any(ad in parsed.netloc for ad in AD_DOMAINS):
+            continue
+        all_candidates.append({
+            "text": f"JSON stream ({parsed.netloc})"[:35],
+            "href": url,
+            "score": 90000
+        })
+    all_candidates.sort(key=lambda x: x["score"], reverse=True)
+    return all_candidates
+
+def smooth_scroll_to_video(page):
+    coords = page.evaluate("""() => {
+        let best = null; let bestArea = 0;
+        document.querySelectorAll('video').forEach(v => {
+            const rect = v.getBoundingClientRect();
+            if (rect.width < 200 || rect.height < 150) return;
+            const area = rect.width * rect.height;
+            if (area > bestArea) { bestArea = area; best = { y: rect.top + window.scrollY, x: rect.left + window.scrollX, w: rect.width, h: rect.height }; }
+        });
+        document.querySelectorAll('iframe').forEach(f => {
+            const rect = f.getBoundingClientRect();
+            if (rect.width < 300 || rect.height < 200) return;
+            const area = rect.width * rect.height;
+            if (area > bestArea) { bestArea = area; best = { y: rect.top + window.scrollY, x: rect.left + window.scrollX, w: rect.width, h: rect.height }; }
+        });
+        return best || { y: window.scrollY, x: 0, w: 0, h: 0 };
+    }""")
+    target_y = coords["y"]
+    current_y = page.evaluate("window.scrollY")
+    distance = target_y - current_y
+    steps = max(20, abs(distance) // 15)
+    step_size = distance / steps
+    for i in range(steps):
+        current_y += step_size
+        page.evaluate(f"window.scrollTo({{top: {int(current_y)}, behavior: 'smooth'}})")
+        page.wait_for_timeout(50)
+    page.evaluate(f"window.scrollTo({{top: {int(target_y)}, behavior: 'smooth'}})")
+    page.wait_for_timeout(200)
+
+def find_video_center(page):
+    coords = page.evaluate("""() => {
+        const centerX = window.innerWidth / 2;
+        const centerY = window.innerHeight / 2;
+        let best = null; let bestArea = 0;
+        document.querySelectorAll('video').forEach(v => {
+            const rect = v.getBoundingClientRect();
+            if (rect.width < 200 || rect.height < 150) return;
+            const area = rect.width * rect.height;
+            if (area > bestArea) { bestArea = area; best = { x: rect.x + rect.width / 2, y: rect.y + rect.height / 2 }; }
+        });
+        document.querySelectorAll('iframe').forEach(f => {
+            const rect = f.getBoundingClientRect();
+            if (rect.width < 300 || rect.height < 200) return;
+            const area = rect.width * rect.height;
+            if (area > bestArea) { bestArea = area; best = { x: rect.x + rect.width / 2, y: rect.y + rect.height / 2 }; }
+        });
+        return best || { x: centerX, y: centerY };
+    }""")
+    return coords["x"], coords["y"]
+
+# ═══════════════ ادامه در پارت دوم... ═══════════════
+# (توابع اصلی پردازش Jobها، ضبط، مرورگر، کاوشگر، پیام‌ها، callbackها)
+
 
 # ═══════════════ پردازش Jobهای مرورگر ═══════════════
 def process_browser_job(job: Job):
@@ -1502,7 +1629,7 @@ def handle_captcha(job):
         if browser: browser.close()
         pw.stop()
 
-# ═══════════════ توابع اسکن و تحلیل (همانند نسخه قبل) ═══════════════
+# ═══════════════ توابع اسکن و تحلیل ═══════════════
 def handle_scan_videos(job):
     chat_id = job.chat_id; session = get_session(chat_id)
     pw = sync_playwright().start(); browser = None
@@ -1558,7 +1685,7 @@ def handle_smart_analyze(job):
             cmd = f"/H{hashlib.md5(item['href'].encode()).hexdigest()[:5]}"
             cmds[cmd] = item['href']; lines.append(f"{cmd} : {item['text'][:40]}")
         send_message(chat_id, "\n".join(lines))
-    session.text_links = {**(session.text_links or {}), **cmds}; set_session(session)
+            session.text_links = {**(session.text_links or {}), **cmds}; set_session(session)
     job.status = "done"; update_job(job)
 
 def handle_source_analyze(job):
@@ -1951,7 +2078,7 @@ def handle_message(chat_id, text):
             send_message(chat_id, "⛔ دسترسی غیرمجاز.")
             return
         kill_all_jobs()
-        for uid in list(sessions_dict.keys()):
+        for uid in list(inmemory_sessions.keys()):
             s = get_session(int(uid))
             s.state = "idle"
             s.current_job_id = None
@@ -2014,7 +2141,6 @@ def handle_message(chat_id, text):
         set_session(session)
         send_message(chat_id, "🔓 اشتراک شما لغو شد. اکنون در طرح **پایه** هستید.",
                      reply_markup=main_menu_keyboard(session.is_admin))
-        # پاک کردن binding در صورت وجود (اگر کد اشتراکی استفاده کرده بود)
         for code, cid in list(code_bindings.items()):
             if cid == chat_id:
                 del code_bindings[code]
@@ -2086,7 +2212,7 @@ def handle_message(chat_id, text):
         set_session(session)
         send_message(chat_id, "🕸️ خزنده در حال شروع...")
         from K import start_crawl
-        threading.Thread(target=start_crawl, args=(chat_id, url), daemon=True).start()
+        threading.Thread(target=start_crawl, args=(chat_id, url, session.settings.crawler_mode, session.settings.crawler_layers, session.settings.crawler_limit), daemon=True).start()
         return
 
     if session.state.startswith("waiting_url_"):
@@ -2387,7 +2513,7 @@ def admin_panel(chat_id):
         mem = subprocess.run(['free', '-m'], stdout=subprocess.PIPE, text=True).stdout.strip()
         disk = subprocess.run(['df', '-h'], stdout=subprocess.PIPE, text=True).stdout.strip()
         uptime = subprocess.run(['uptime'], stdout=subprocess.PIPE, text=True).stdout.strip()
-        active_users = len(sessions_dict)
+        active_users = len(inmemory_sessions)
         status = "⛔ غیرفعال" if is_service_disabled() else "✅ فعال"
         msg = f"🛠️ **پنل ادمین**\n\n🔧 **وضعیت سرویس:** {status}\n\n💾 **حافظه:**\n{mem}\n\n📀 **دیسک:**\n{disk}\n\n⏱️ **آپ‌تایم:**\n{uptime}\n\n👥 **کاربران فعال:** {active_users}"
         kb = {"inline_keyboard": [
@@ -2398,11 +2524,11 @@ def admin_panel(chat_id):
     except: send_message(chat_id, "❌ خطا در بارگذاری اطلاعات")
 
 def list_users(chat_id):
-    if not sessions_dict:
+    if not inmemory_sessions:
         send_message(chat_id, "ℹ️ کاربری وجود ندارد.")
         return
     lines = ["👥 **لیست کاربران:**"]
-    for uid, sdata in sessions_dict.items():
+    for uid, sdata in inmemory_sessions.items():
         sub = sdata.get("subscription", "پایه")
         lines.append(f"🆔 `{uid}` – {sub}")
     send_message(chat_id, "\n".join(lines))
@@ -2412,7 +2538,7 @@ def clean_old_links():
     while True:
         try:
             now = time.time()
-            for uid, sdata in list(sessions_dict.items()):
+            for uid, sdata in list(inmemory_sessions.items()):
                 if "last_browser_time" in sdata and now - sdata["last_browser_time"] > 1200:
                     sdata["browser_links"] = None
                     sdata["browser_url"] = None
@@ -2428,7 +2554,6 @@ def polling_loop(stop_event):
     offset = None
     safe_print("[Polling] start")
 
-    # --- نادیده گرفتن همه پیام‌های قدیمی ---
     try:
         first_updates = get_updates(timeout=0)
         if first_updates:
