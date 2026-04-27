@@ -2,16 +2,16 @@ name: Bot27 - Production Runner
 
 on:
   schedule:
-    - cron: "0 */6 * * *"
-  workflow_dispatch:
+    - cron: "0 */6 * * *"        # هر ۶ ساعت یکبار
+  workflow_dispatch:            # امکان اجرای دستی
 
 jobs:
   run-bot:
     runs-on: ubuntu-latest
-    timeout-minutes: 360
+    timeout-minutes: 360         # حداکثر ۶ ساعت
     env:
       FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
-      DISPLAY: :99
+      DISPLAY: :99               # نمایشگر مجازی برای فایرفاکس
 
     steps:
       - name: دریافت کد از مخزن
