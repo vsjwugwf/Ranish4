@@ -413,13 +413,20 @@ def bale_request(method, params=None, files=None):
             r = requests.post(url, data=params or {}, files=files, timeout=REQUEST_TIMEOUT)
         else:
             r = requests.post(url, json=params or {}, timeout=REQUEST_TIMEOUT)
+        # 👇 این خط‌ها رو اضافه کن
+        if method == "getUpdates":
+            safe_print(f"[API] getUpdates -> HTTP {r.status_code}, ok={r.json().get('ok')}, result count={len(r.json().get('result', []))}")
+        elif r.status_code != 200 or not r.json().get("ok"):
+            safe_print(f"[API] {method} -> HTTP {r.status_code}, ok={r.json().get('ok')}, response={r.text[:200]}")
+        # 👆
         if r.status_code != 200:
             return None
         data = r.json()
         if not data.get("ok"):
             return None
         return data["result"]
-    except:
+    except Exception as e:
+        safe_print(f"[API] {method} -> EXCEPTION: {e}")
         return None
 
 def send_message(chat_id, text, reply_markup=None):
@@ -448,7 +455,13 @@ def get_updates(offset=None, timeout=LONG_POLL_TIMEOUT):
     params = {"timeout": timeout}
     if offset:
         params["offset"] = offset
-    return bale_request("getUpdates", params=params) or []
+    safe_print(f"[Poll] asking with offset={offset}, timeout={timeout}")
+    result = bale_request("getUpdates", params=params)
+    if result:
+        safe_print(f"[Poll] got {len(result)} updates")
+    else:
+        safe_print(f"[Poll] got None/[] from server")
+    return result or []
 
 # ═══════════════ منوها ═══════════════
 def main_menu_keyboard(is_admin=False):
