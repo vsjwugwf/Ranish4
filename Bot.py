@@ -1685,7 +1685,8 @@ def handle_smart_analyze(job):
             cmd = f"/H{hashlib.md5(item['href'].encode()).hexdigest()[:5]}"
             cmds[cmd] = item['href']; lines.append(f"{cmd} : {item['text'][:40]}")
         send_message(chat_id, "\n".join(lines))
-            session.text_links = {**(session.text_links or {}), **cmds}; set_session(session)
+    session.text_links = {**(session.text_links or {}), **cmds}
+    set_session(session)
     job.status = "done"; update_job(job)
 
 def handle_source_analyze(job):
