@@ -272,7 +272,6 @@ class WildCrawler:
                     else:
                         if depth < self.max_depth and is_same_domain(link, url):
                             self.queue.put((link, depth+1, layer))
-                        # اگر لایه فعلی پر نشده و لایه جدید می‌تواند ایجاد شود
                         elif self.total_pages < self.max_pages and layer < self.max_layers + 1:
                             self.queue.put((link, depth+1, layer+1))
 
