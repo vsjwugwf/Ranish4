@@ -1166,75 +1166,105 @@ async def process_scan_job(job: Job):
         job.status = "error"
 
 async def handle_scan_downloads(job):
-    chat_id = job.chat_id; session = await get_session(chat_id)
+    chat_id = job.chat_id
+    session = await get_session(chat_id)
     url = session.browser_url
     if not url:
         await send_message(chat_id, "❌ صفحه‌ای برای جستجو باز نیست.")
         return
     deep_mode = session.settings.deep_scan_mode
     await send_message(chat_id, f"🔎 جستجوی فایل‌ها ({deep_mode})...")
-    found_links = set(); all_results = []
-    def add_result(link):
-        if link in found_links: return
-        found_links.add(link)
-        fname = get_filename_from_url(link); size_str = "نامشخص"; size_bytes = None
-        try:
-            head = requests.head(link, timeout=5, allow_redirects=True)
-            if "Content-Length" in head.headers:
-                size_bytes = int(head.headers["Content-Length"])
-                size_str = f"{size_bytes/1024/1024:.2f} MB"
-        except: pass
-        if deep_mode == "logical" and not is_direct_file_url(link):
-            return
-        all_results.append({"name": fname[:35], "url": link, "size": size_str})
+    found_links = set()
+    all_results = []
 
-    start_time = time.time()
-    try:
-        context = await get_user_context(chat_id, session.settings.incognito_mode)
-        page = await context.new_page()
-        await page.goto(url, timeout=30000, wait_until="domcontentloaded")
-        await page.wait_for_timeout(1000)
-        all_hrefs = await page.evaluate("""() => {
-            return Array.from(document.querySelectorAll('a[href]')).map(a => a.href).filter(h => h.startsWith('http'));
-        }""")
-        await page.close()
-        for href in all_hrefs:
-            parsed = urlparse(href)
-            if any(ad in parsed.netloc for ad in AD_DOMAINS): continue
-            if any(kw in href.lower() for kw in BLOCKED_AD_KEYWORDS): continue
-            if is_direct_file_url(href): add_result(href)
-        elapsed = time.time() - start_time
-        if all_results: await send_message(chat_id, f"✅ مرحله ۱: {len(all_results)} فایل ({elapsed:.1f}s)")
-    except Exception as e: safe_log(f"scan_downloads stage1 error: {e}")
+    # یک سیشن aiohttp برای درخواست‌های HEAD (غیرهمگام)
+    async with aiohttp.ClientSession() as head_sess:
+        async def add_result(link):
+            if link in found_links:
+                return
+            found_links.add(link)
+            fname = get_filename_from_url(link)
+            size_str = "نامشخص"
+            size_bytes = None
+            try:
+                async with head_sess.head(link, timeout=aiohttp.ClientTimeout(total=5),
+                                          allow_redirects=True) as resp:
+                    if "Content-Length" in resp.headers:
+                        size_bytes = int(resp.headers["Content-Length"])
+                        size_str = f"{size_bytes/1024/1024:.2f} MB"
+            except Exception:
+                pass
+            if deep_mode == "logical" and not is_direct_file_url(link):
+                return
+            all_results.append({"name": fname[:35], "url": link, "size": size_str})
 
-    if not all_results and time.time() - start_time < 60:
-        await send_message(chat_id, "🔄 مرحله ۲: کراول سبک...")
+        start_time = time.time()
+        # -- مرحله ۱: بررسی سریع با Playwright --
         try:
-            s = requests.Session(); s.headers.update({"User-Agent": "Mozilla/5.0"})
-            resp = s.get(url, timeout=10)
-            if resp.status_code == 200 and "text/html" in resp.headers.get("Content-Type", ""):
-                soup = BeautifulSoup(resp.text, "html.parser")
-                links_to_crawl = []
-                for a in soup.find_all("a", href=True):
-                    href = urljoin(url, a["href"])
-                    parsed = urlparse(href)
-                    if any(ad in parsed.netloc for ad in AD_DOMAINS): continue
-                    if any(kw in href.lower() for kw in BLOCKED_AD_KEYWORDS): continue
-                    if is_direct_file_url(href): add_result(href)
-                    else: links_to_crawl.append(href)
-                for link in links_to_crawl[:15]:
-                    if time.time() - start_time > 60: break
-                    found = await async_crawl_for_download(link)
-                    if found: add_result(found)
-                elapsed = time.time() - start_time
-                await send_message(chat_id, f"✅ مرحله ۲: مجموعاً {len(all_results)} فایل ({elapsed:.1f}s)")
-        except Exception as e: safe_log(f"scan_downloads stage2 error: {e}")
+            context = await get_user_context(chat_id, session.settings.incognito_mode)
+            page = await context.new_page()
+            await page.goto(url, timeout=30000, wait_until="domcontentloaded")
+            await page.wait_for_timeout(1000)
+            all_hrefs = await page.evaluate("""() => {
+                return Array.from(document.querySelectorAll('a[href]'))
+                            .map(a => a.href).filter(h => h.startsWith('http'));
+            }""")
+            await page.close()
+            for href in all_hrefs:
+                parsed = urlparse(href)
+                if any(ad in parsed.netloc for ad in AD_DOMAINS):
+                    continue
+                if any(kw in href.lower() for kw in BLOCKED_AD_KEYWORDS):
+                    continue
+                if is_direct_file_url(href):
+                    await add_result(href)
+            elapsed = time.time() - start_time
+            if all_results:
+                await send_message(chat_id, f"✅ مرحله ۱: {len(all_results)} فایل ({elapsed:.1f}s)")
+        except Exception as e:
+            safe_log(f"scan_downloads stage1 error: {e}")
+
+        # -- مرحله ۲: کراول سبک با requests (async نیست، ولی aiohttp نیست و مشکلی ایجاد نمی‌کند) --
+        if not all_results and time.time() - start_time < 60:
+            await send_message(chat_id, "🔄 مرحله ۲: کراول سبک...")
+            try:
+                # این بخش کماکان با requests است چون async نبودنش تو این فضای خاص تأثیر زیادی ندارد
+                import requests as sync_requests
+                s = sync_requests.Session()
+                s.headers.update({"User-Agent": "Mozilla/5.0"})
+                resp = s.get(url, timeout=10)
+                if resp.status_code == 200 and "text/html" in resp.headers.get("Content-Type", ""):
+                    soup = BeautifulSoup(resp.text, "html.parser")
+                    links_to_crawl = []
+                    for a in soup.find_all("a", href=True):
+                        href = urljoin(url, a["href"])
+                        parsed = urlparse(href)
+                        if any(ad in parsed.netloc for ad in AD_DOMAINS):
+                            continue
+                        if any(kw in href.lower() for kw in BLOCKED_AD_KEYWORDS):
+                            continue
+                        if is_direct_file_url(href):
+                            await add_result(href)
+                        else:
+                            links_to_crawl.append(href)
+                    for link in links_to_crawl[:15]:
+                        if time.time() - start_time > 60:
+                            break
+                        found = await async_crawl_for_download(link)
+                        if found:
+                            await add_result(found)
+                    elapsed = time.time() - start_time
+                    await send_message(chat_id, f"✅ مرحله ۲: مجموعاً {len(all_results)} فایل ({elapsed:.1f}s)")
+            except Exception as e:
+                safe_log(f"scan_downloads stage2 error: {e}")
 
     if not all_results:
         await send_message(chat_id, "🚫 هیچ فایل قابل دانلودی یافت نشد.")
         job.status = "done"
         return
-    session.found_downloads = all_results; session.found_downloads_page = 0
+
+    session.found_downloads = all_results
+    session.found_downloads_page = 0
     await set_session(session)
     await send_found_downloads_page(chat_id, 0)
     job.status = "done"
