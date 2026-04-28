@@ -1,32 +1,23 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-K.py – Wild Crawler (نسخهٔ Async پیشرفته)
-قابلیت‌ها:
-- سه حالت normal/medium/deep + لایه‌های چندگانه
-- فیلتر نوع فایل (تصاویر، ویدیو، فشرده، PDF، ناشناخته)
-- ضد تبلیغ، Sitemap، اولویت‌بندی هوشمند، حالت JS
-- نمایش زندهٔ پیشرفت و پشتیبانی از لغو
-- ذخیره و ادامهٔ خودکار (Resume)
-- خروجی لایه‌ای + CSV + گزارش HTML با نمودار
+K.py – Wild Crawler (Async) – نسخه نهایی
+رفع: import subprocess، callback سه‌آرگومانه، بستن CSV، نام فایل یکتا، تأخیر دامنه
 """
 
 import os, sys, json, time, uuid, hashlib, zipfile, csv, shutil, re, math
-import asyncio, aiohttp, traceback
+import asyncio, aiohttp, traceback, subprocess
 from urllib.parse import urlparse, urljoin, unquote
 from bs4 import BeautifulSoup
-from typing import Dict, Any, Optional, List, Set, Tuple
-from dataclasses import dataclass, field
+from typing import Any, Optional, List, Set, Tuple
 
-# ─────────────── ثابت‌ها ───────────────
 ZIP_PART_SIZE = 19 * 1024 * 1024
-MAX_TOTAL_DOWNLOAD_SIZE = 2 * 1024 * 1024 * 1024  # 2GB
-DOMAIN_DELAY = 1.0
+MAX_TOTAL_DOWNLOAD_SIZE = 2 * 1024 * 1024 * 1024
+DOMAIN_DELAY = 0.5  # ثانیه تأخیر بین درخواست‌ها به یک دامنه
 USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
 AD_DOMAINS = {"doubleclick.net","googleadservices.com","googlesyndication.com","adservice.google.com"}
 BLOCKED_AD_KEYWORDS = {"ad","banner","popup","sponsor","track","analytics"}
 
-# ─────────────── ابزارهای کمکی ───────────────
 def safe_log(msg):
     print(f"[Crawler] {msg}", flush=True)
 
@@ -103,7 +94,6 @@ def create_zip_and_split(src, base):
     os.remove(zp)
     return parts
 
-# ─────────────── کلاس خزنده ───────────────
 class WildCrawler:
     def __init__(self, chat_id: int, start_url: str, settings: dict,
                  progress_callback=None, stop_event: asyncio.Event = None):
@@ -113,10 +103,9 @@ class WildCrawler:
         self.progress_callback = progress_callback
         self.stop_event = stop_event or asyncio.Event()
 
-        # پارامترهای استخراج‌شده
         self.mode = settings.get("mode", "normal")
         self.layers = settings.get("layers", 2)
-        self.max_pages = settings.get("max_pages", 0)  # 0 = خودکار
+        self.max_pages = settings.get("max_pages", 0)
         self.max_time = settings.get("max_time_minutes", 20) * 60
         self.file_filters = settings.get("file_filters", {
             "image": True, "video": True, "archive": True, "pdf": True, "unknown": True
@@ -126,7 +115,6 @@ class WildCrawler:
         self.priority = settings.get("priority", False)
         self.js_mode = settings.get("js_mode", False)
 
-        # حالت‌های از پیش تعریف‌شده
         mode_map = {
             "normal": {"max_depth": 1, "default_pages": 200},
             "medium": {"max_depth": 2, "default_pages": 500},
@@ -139,33 +127,28 @@ class WildCrawler:
 
         self.visited: Set[str] = set()
         self.queue = asyncio.PriorityQueue() if self.priority else asyncio.Queue()
-        self.session = None  # aiohttp session
+        self.session = None
         self.total_pages = 0
         self.total_files = 0
         self.total_errors = 0
         self.total_size = 0
         self.start_time = time.time()
-        self.domain_last_request = {}
+        self.domain_last_request: Dict[str, float] = {}
         self.results_dir = f"crawl_results_{uuid.uuid4().hex[:8]}"
         os.makedirs(self.results_dir, exist_ok=True)
 
-        # لایه‌ها
         for l in range(1, self.layers + 2):
             layer_dir = os.path.join(self.results_dir, f"layer_{l}")
-            for sub in ["images", "videos", "files", "unknown"]:
+            for sub in ["images", "videos", "files", "unknown", "texts"]:
                 os.makedirs(os.path.join(layer_dir, sub), exist_ok=True)
 
         self.csv_file = os.path.join(self.results_dir, "all_links.csv")
-        self._init_csv()
-
-        # فایل Resume
-        self.resume_file = f"data/crawler_{chat_id}.json"
-        self.resume_data = self._load_resume()
-
-    def _init_csv(self):
         self.csv_fh = open(self.csv_file, "w", newline="", encoding="utf-8")
         self.csv_writer = csv.writer(self.csv_fh)
         self.csv_writer.writerow(["url","status","content_type","type","layer","depth","note"])
+
+        self.resume_file = f"data/crawler_{chat_id}.json"
+        self.resume_data = self._load_resume()
 
     def _load_resume(self):
         if os.path.exists(self.resume_file):
@@ -187,7 +170,6 @@ class WildCrawler:
         }
         with open(self.resume_file, "w") as f:
             json.dump(data, f)
-        # تلاش برای push (اختیاری)
         if os.getenv("GITHUB_TOKEN"):
             try:
                 subprocess.run(["git", "add", self.resume_file], check=False)
@@ -202,6 +184,14 @@ class WildCrawler:
         if any(ad in domain for ad in AD_DOMAINS): return True
         if any(kw in url.lower() for kw in BLOCKED_AD_KEYWORDS): return True
         return False
+
+    async def _respect_delay(self, url):
+        domain = get_domain(url)
+        now = time.time()
+        last = self.domain_last_request.get(domain, 0)
+        if now - last < DOMAIN_DELAY:
+            await asyncio.sleep(DOMAIN_DELAY - (now - last))
+        self.domain_last_request[domain] = time.time()
 
     async def _fetch_sitemap(self):
         sitemap_urls = [
@@ -224,7 +214,6 @@ class WildCrawler:
         await self._notify("🕸️ خزنده شروع به کار کرد...")
         self.session = aiohttp.ClientSession(headers={"User-Agent": USER_AGENT})
 
-        # Sitemap
         if self.use_sitemap:
             sitemap_links = await self._fetch_sitemap()
             if sitemap_links:
@@ -232,14 +221,12 @@ class WildCrawler:
                 for link in sitemap_links:
                     await self._enqueue(link, depth=0, layer=1)
 
-        # اگر resume داریم
         if self.resume_data and not self.visited:
             self.visited = set(self.resume_data.get("visited", []))
             self.total_pages = self.resume_data.get("total_pages", 0)
             self.total_files = self.resume_data.get("total_files", 0)
             await self._notify("🔄 ادامه از جلسهٔ قبلی...")
 
-        # اضافه کردن URL شروع
         await self._enqueue(self.start_url, depth=0, layer=1)
 
         workers = [self._worker() for _ in range(5)]
@@ -278,12 +265,11 @@ class WildCrawler:
             self.visited.add(url)
             self.total_pages += 1
 
-            # ضد تبلیغ
             if self._is_ad(url):
                 self._log_csv(url, "blocked_ad", "", "ad", layer, depth)
                 continue
 
-            # پردازش
+            await self._respect_delay(url)
             await self._process_url(url, depth, layer)
 
             if self.total_pages % 10 == 0:
@@ -326,11 +312,10 @@ class WildCrawler:
                 elif depth < self.max_depth and layer < self.layers + 1:
                     await self._enqueue(link, depth+1, layer+1)
 
-        # ذخیره متن صفحه
         text_dir = os.path.join(self.results_dir, f"layer_{layer}", "texts")
         os.makedirs(text_dir, exist_ok=True)
-        fname = f"{get_domain(url)}_{depth}.txt"
-        with open(os.path.join(text_dir, fname), "w", encoding="utf-8") as f:
+        safe_name = f"{get_domain(url)}_{depth}_{uuid.uuid4().hex[:6]}.txt"
+        with open(os.path.join(text_dir, safe_name), "w", encoding="utf-8") as f:
             f.write(html)
         self._log_csv(url, "completed", "text/html", "page", layer, depth)
 
@@ -358,7 +343,6 @@ class WildCrawler:
             self.total_files += 1
             self.total_size += size
             self._log_csv(url, "downloaded", "", cat, layer, 0, f"size={size}")
-            # ذخیره لینک در فایل txt
             links_file = os.path.join(layer_dir, f"{cat}s_links.txt")
             with open(links_file, "a") as lf:
                 lf.write(url + "\n")
@@ -384,11 +368,10 @@ class WildCrawler:
 
     async def _finalize(self):
         await self._notify("📦 در حال آماده‌سازی خروجی...")
-        # HTML report
+        self.csv_fh.close()
         html_path = os.path.join(self.results_dir, "report.html")
         with open(html_path, "w", encoding="utf-8") as f:
             f.write(self._generate_html_report())
-        # آماده‌سازی ZIP
         zip_name = f"crawl_result_{uuid.uuid4().hex[:8]}.zip"
         zip_path = os.path.join(self.results_dir, zip_name)
         with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as zf:
@@ -398,16 +381,12 @@ class WildCrawler:
                     fp = os.path.join(root, file)
                     arcname = os.path.relpath(fp, self.results_dir)
                     zf.write(fp, arcname)
-        # ارسال
-        await self._notify("📤 ارسال نتایج...")
         if self.progress_callback:
             await self.progress_callback(self.chat_id, "__FINAL_ZIP__", zip_path)
         shutil.rmtree(self.results_dir, ignore_errors=True)
 
     def _generate_html_report(self):
-        # نمودار ساده با SVG
         counts = {"image": 0, "video": 0, "archive": 0, "pdf": 0, "unknown": 0}
-        # خواندن CSV برای شمارش
         try:
             with open(self.csv_file, "r") as f:
                 reader = csv.DictReader(f)
@@ -440,7 +419,6 @@ class WildCrawler:
 {svg}
 </body></html>"""
 
-# ─────────────── تابع ورودی ───────────────
 async def start_crawl(chat_id: int, url: str, settings: dict,
                       progress_callback=None, stop_event: asyncio.Event = None):
     crawler = WildCrawler(chat_id, url, settings, progress_callback, stop_event)
